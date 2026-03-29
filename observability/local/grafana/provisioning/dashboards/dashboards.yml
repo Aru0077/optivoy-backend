@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Optivoy Local
+    orgId: 1
+    folder: Optivoy
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
