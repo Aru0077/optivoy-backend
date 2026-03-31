@@ -5,11 +5,12 @@ export interface TripCityItem {
   city: string;
   spotsCount: number;
   shoppingCount: number;
+  restaurantsCount: number;
 }
 
 export interface PlannerPointView {
   id: string;
-  pointType: 'spot' | 'shopping';
+  pointType: 'spot' | 'shopping' | 'restaurant';
   name: string;
   nameI18n: Record<string, string>;
   province: string;
@@ -19,6 +20,7 @@ export interface PlannerPointView {
   intro: string;
   introI18n: Record<string, string | undefined>;
   suggestedDurationMinutes: number;
+  mealSlots?: string[];
   latitude: number | null;
   longitude: number | null;
   coverImageUrl: string | null;
@@ -41,59 +43,74 @@ export interface PlannerHotelCandidate {
   longitude: number | null;
 }
 
-export interface PlannerInputPoint {
+export interface GeneratedTripLeg {
+  fromPointId: string;
+  toPointId: string;
+  transportMode: 'transit' | 'driving' | 'walking';
+  transitMinutes: number;
+  drivingMinutes: number;
+  walkingMeters: number;
+  distanceKm: number;
+  transitSummary: string | null;
+}
+
+export interface GeneratedTripPoint {
   id: string;
-  pointType: 'spot' | 'shopping';
+  pointType: 'spot' | 'shopping' | 'restaurant';
   name: string;
-  intro: string;
   suggestedDurationMinutes: number;
-  latitude: number | null;
-  longitude: number | null;
+  guideI18n: Record<string, string | undefined>;
 }
 
-export interface AiPlanItem {
-  pointType: 'spot' | 'shopping';
-  refId: string;
-  startTime: string;
-  endTime: string;
-  suggestedStayMinutes: number;
-  transitMinutesFromPrev: number;
-  reason: string;
-}
-
-export interface AiPlanDay {
+export interface GeneratedTripDay {
+  dayNumber: number;
   date: string;
-  startType: 'arrival' | 'hotel';
-  startRefId: string | null;
-  checkoutRequired: boolean;
-  nightHotelId: string;
-  hotelId: string;
-  hotelReason: string;
-  items: AiPlanItem[];
-}
-
-export interface AiPlanResult {
-  itineraryTitle: string;
-  summary: string;
-  checkInDate: string;
-  checkOutDate: string;
-  returnDepartureDateTime: string;
-  days: AiPlanDay[];
+  hotel: {
+    id: string;
+    name: string;
+    bookingUrl: string;
+  };
+  legs: GeneratedTripLeg[];
+  points: GeneratedTripPoint[];
 }
 
 export interface GeneratedTripResult {
   city: string;
   province: string;
   arrivalDateTime: string;
+  arrivalBufferMinutes: number;
   tripDays: number;
-  selectedPoints: PlannerPointView[];
-  selectedHotels: PlannerHotelCandidate[];
-  aiPlan: AiPlanResult;
+  solverStatus: 'OPTIMAL' | 'FEASIBLE';
+  days: GeneratedTripDay[];
   links: {
     outboundFlight: string;
-    hotelBooking: string;
     returnFlight: string;
   };
+}
+
+export interface TripPlannerMatrixCoverageStats {
+  expected: number;
+  ready: number;
+  missing: number;
+  coverage: number;
+}
+
+export interface TripPlannerMatrixMissingEdge {
+  fromPointId: string;
+  toPointId: string;
+}
+
+export interface TripPlannerMatrixCheckResult {
+  city: string;
+  province: string;
+  nodeCount: number;
+  pointCount: number;
+  hotelCount: number;
+  airportCount: number;
+  directed: TripPlannerMatrixCoverageStats;
+  undirected: TripPlannerMatrixCoverageStats;
+  missingEdgesSample: TripPlannerMatrixMissingEdge[];
+  canGenerate: boolean;
 }
 
 export type PlannerLang = ContentLang;

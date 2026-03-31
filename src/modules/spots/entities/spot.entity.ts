@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
 
 export interface SpotIntroI18n {
   'zh-CN'?: string;
@@ -14,6 +15,13 @@ export interface SpotIntroI18n {
 }
 
 export interface SpotGuideI18n {
+  'zh-CN'?: string;
+  'mn-MN'?: string;
+  'en-US'?: string;
+  [key: string]: string | undefined;
+}
+
+export interface SpotNoticeI18n {
   'zh-CN'?: string;
   'mn-MN'?: string;
   'en-US'?: string;
@@ -40,8 +48,6 @@ export interface SpotRegionI18n {
   'en-US'?: string;
   [key: string]: string | undefined;
 }
-
-export type SpotPlaceType = 'attraction' | 'theme_park' | 'culture' | 'other';
 
 @Entity('spots')
 export class Spot {
@@ -84,6 +90,9 @@ export class Spot {
   @Column({ type: 'jsonb', nullable: true })
   guideI18n: SpotGuideI18n | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  noticeI18n: SpotNoticeI18n | null;
+
   @Column({ type: 'int', default: 240 })
   suggestedDurationMinutes: number;
 
@@ -99,14 +108,23 @@ export class Spot {
   @Column({ type: 'jsonb', nullable: true })
   closedWeekdays: number[] | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  ticketPriceMinCny: string | null;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  ticketPriceMinCny: number | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  ticketPriceMaxCny: string | null;
-
-  @Column({ type: 'varchar', length: 32, default: 'attraction' })
-  placeType: SpotPlaceType;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  ticketPriceMaxCny: number | null;
 
   @Column({ default: true })
   isPublished: boolean;

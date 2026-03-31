@@ -2,8 +2,6 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
-  IsLatitude,
-  IsLongitude,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,103 +9,11 @@ import {
   Max,
   MaxLength,
   Min,
-  MinLength,
   ValidateIf,
 } from 'class-validator';
+import { BasePlaceCreateDto } from '../../../common/dto/base-place.dto';
 
-export class CreateHotelDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  nameZhCN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  nameMnMN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  nameEn: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  @Matches(/^[A-Za-z][A-Za-z\s'().-]{0,119}$/)
-  province: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  provinceMnMN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  provinceZhCN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  @Matches(/^[A-Za-z][A-Za-z\s'().-]{0,119}$/)
-  city: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  cityMnMN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(120)
-  cityZhCN: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
-  latitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
-  longitude?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  coverImageUrl?: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
-  introMnMN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
-  introZhCN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
-  introEn: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(8000)
-  guideMnMN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(8000)
-  guideZhCN: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(8000)
-  guideEn: string;
-
+export class CreateHotelDto extends BasePlaceCreateDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()

@@ -1,17 +1,19 @@
-import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
   IsDateString,
+  IsIn,
   IsInt,
+  Max,
   IsOptional,
   IsString,
   IsUUID,
-  Max,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class GenerateItineraryDto {
   @IsString()
@@ -26,30 +28,39 @@ export class GenerateItineraryDto {
   @IsDateString()
   arrivalDateTime: string;
 
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(14)
-  tripDays: number;
+  @Min(60)
+  @Max(120)
+  arrivalBufferMinutes: number = 90;
 
   @IsArray()
   @ArrayMaxSize(200)
   @ArrayUnique()
   @IsUUID('4', { each: true })
-  selectedSpotIds: string[];
+  selectedPointIds: string[];
 
-  @IsArray()
-  @ArrayMaxSize(200)
-  @ArrayUnique()
-  @IsUUID('4', { each: true })
-  selectedShoppingIds: string[];
+  @IsString()
+  @IsIn(['light', 'standard', 'compact'])
+  paceMode: 'light' | 'standard' | 'compact';
 
-  @IsOptional()
-  @IsDateString()
-  preferredReturnDepartureDateTime?: string;
+  @IsString()
+  @IsIn(['single', 'multi'])
+  hotelMode: 'single' | 'multi';
 
   @IsOptional()
   @IsString()
-  @MaxLength(3000)
-  regenerateInstruction?: string;
+  @IsIn(['auto', 'off'])
+  mealPolicy: 'auto' | 'off' = 'auto';
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{3}$/)
+  arrivalAirportCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{3}$/)
+  departureAirportCode?: string;
 }

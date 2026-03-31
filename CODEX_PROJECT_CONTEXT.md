@@ -1,6 +1,6 @@
 # Codex 项目上下文（optivoy-backend）
 
-最后更新：2026-03-28（Trip Planner AI 严格结构化输出升级）
+最后更新：2026-03-30（P2 生成链路接入 optimizer + transit_cache）
 
 ## 1. 当前核心架构
 
@@ -20,14 +20,12 @@
 
 ## 2. 行程相关最新业务边界
 
-- 不再维护 `travel-routes` 静态线路模板
-- Admin 不新增线路，只维护点位数据（景点/购物/酒店）
+- Admin 仅维护点位数据（景点/购物/饭店/酒店/机场）
 - 用户端流程：
   1. 按城市查看景点和购物点（不展示酒店）
   2. 输入到达时间并选择点位
-  3. 后端调用 AI 生成每日行程
-  4. AI 必须返回严格 JSON
-  5. 后端审查结构后返回前端
+  3. 调用确定性求解器生成线路
+  4. 返回每日点位顺序、酒店选择、分段交通与预订链接
 
 ## 3. Trip Planner 模块
 
@@ -41,46 +39,22 @@
 
 关键能力：
 
-- 聚合 `spots + shopping` 的城市维度统计
-- 返回城市点位（仅景点、购物）
-- 加载同城酒店候选供 AI 选择
-- 调用 AI（DeepSeek 主 + Qwen 兜底）：
-  - DeepSeek：先 `response_format=json_object`，失败后自动降级为仅 Prompt 约束
-  - Qwen：优先 `json_schema(strict)+enable_thinking=false`，失败再回退 `json_object`
-- 二次结构校验：
-  - 日期/时间格式
-  - 行程天数与连续日期
-  - 点位必须全部且仅一次
-  - 酒店 ID 必须来自候选集合
-  - 每日起点（arrival/hotel）、退房标记、晚住酒店、通勤分钟、建议游玩时长
-- 固定 System Prompt + 低随机参数：
-  - `temperature=0.2`
-  - `frequency_penalty=0`
-  - `presence_penalty=0`
-  - `max_tokens` 按天数动态
-- 请求体带坐标和距离提示（基于经纬度估算通勤分钟）用于“距离最优”排序
-- 生成机票/酒店深链（含入住退房和返程时间）
+- 聚合 `spots + shopping + restaurants` 的城市维度统计
+- 返回城市点位（景点、购物、饭店；酒店不在选点阶段展示）
+- `POST /trip-planner/generate` 已接入 optimizer（依赖 `transit_cache` 矩阵）
+- 机票/酒店深链能力保留在配置层
 
-## 4. 已下线内容
-
-- 代码模块：`src/modules/travel-routes/`（已删除）
-- 数据源实体注册：`TravelRoute / TravelRoutePoint / UserRouteCustomization`（已移除）
-- 数据表删除迁移：`1741730000000-RemoveTravelRoutesModule.ts`
-- 代码模块：Openclaw 任务/草稿/聊天接口（已删除）
-- 数据表删除迁移：`1741731000000-RemoveOpenclawModule.ts`
-
-## 5. 常用检查命令
+## 4. 常用检查命令
 
 - 构建：`npm run build`
 - 静态检查：`npm run lint`
 - 单测：`npm test -- --runInBand`
 - 执行迁移：`npm run migration:run`
 
-## 6. 任务前推荐阅读
+## 5. 任务前推荐阅读
 
 1. `src/app.module.ts`
 2. `src/modules/trip-planner/trip-planner.controller.ts`
 3. `src/modules/trip-planner/trip-planner.service.ts`
-4. `src/modules/trip-planner/trip-planner-ai.service.ts`
-5. `src/config/planner.config.ts`
-6. `src/config/config.validation.ts`
+4. `src/config/planner.config.ts`
+5. `src/config/config.validation.ts`

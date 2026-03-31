@@ -23,11 +23,6 @@ export class ListSpotsQueryDto {
   city?: string;
 
   @IsOptional()
-  @IsString()
-  @IsIn(['attraction', 'theme_park', 'culture', 'other'])
-  placeType?: 'attraction' | 'theme_park' | 'culture' | 'other';
-
-  @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )

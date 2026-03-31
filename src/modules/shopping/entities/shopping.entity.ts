@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
 
 export interface ShoppingIntroI18n {
   'zh-CN'?: string;
@@ -14,6 +15,13 @@ export interface ShoppingIntroI18n {
 }
 
 export interface ShoppingGuideI18n {
+  'zh-CN'?: string;
+  'mn-MN'?: string;
+  'en-US'?: string;
+  [key: string]: string | undefined;
+}
+
+export interface ShoppingNoticeI18n {
   'zh-CN'?: string;
   'mn-MN'?: string;
   'en-US'?: string;
@@ -75,17 +83,32 @@ export class ShoppingPlace {
   @Column({ type: 'jsonb', nullable: true })
   guideI18n: ShoppingGuideI18n | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  noticeI18n: ShoppingNoticeI18n | null;
+
   @Column({ type: 'varchar', length: 120, nullable: true })
   openingHours: string | null;
 
   @Column({ type: 'int', default: 240 })
   suggestedDurationMinutes: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  avgSpendMinCny: string | null;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  avgSpendMinCny: number | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  avgSpendMaxCny: string | null;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  avgSpendMaxCny: number | null;
 
   @Column({ default: true })
   isPublished: boolean;

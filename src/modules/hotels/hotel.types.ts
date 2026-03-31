@@ -14,6 +14,8 @@ export interface HotelView {
   introI18n: Record<string, string | undefined>;
   guide: string;
   guideI18n: Record<string, string | undefined>;
+  notice: string;
+  noticeI18n: Record<string, string | undefined>;
   starLevel: number | null;
   foreignerFriendly: boolean;
   checkInTime: string | null;

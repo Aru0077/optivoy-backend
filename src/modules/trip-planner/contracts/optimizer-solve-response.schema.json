@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://optivoy.top/schemas/trip-planner/optimizer-solve-response.schema.json",
+  "title": "OptimizerSolveResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tripDays",
+    "solverStatus",
+    "objective",
+    "days"
+  ],
+  "properties": {
+    "tripDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 14
+    },
+    "solverStatus": {
+      "type": "string",
+      "enum": [
+        "OPTIMAL",
+        "FEASIBLE"
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "days": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 14,
+      "items": {
+        "$ref": "#/$defs/day"
+      }
+    }
+  },
+  "$defs": {
+    "day": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dayNumber",
+        "date",
+        "pointIds",
+        "hotelId"
+      ],
+      "properties": {
+        "dayNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 14
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "pointIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "hotelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    }
+  }
+}

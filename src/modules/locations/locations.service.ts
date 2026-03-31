@@ -13,6 +13,10 @@ import { LocationAirport } from './entities/location-airport.entity';
 import { LocationCity } from './entities/location-city.entity';
 import { LocationCountryRef } from './entities/location-country-ref.entity';
 import { LocationProvince } from './entities/location-province.entity';
+import {
+  PointMatrixStatusSummary,
+  TransitCacheService,
+} from '../transit-cache/transit-cache.service';
 
 export interface LocationCountryView {
   code: string;
@@ -52,6 +56,8 @@ export interface LocationAirportView {
   updatedAt: Date;
 }
 
+export interface AdminPointMatrixStatusView extends PointMatrixStatusSummary {}
+
 @Injectable()
 export class LocationsService {
   constructor(
@@ -63,6 +69,7 @@ export class LocationsService {
     private readonly cityRepository: Repository<LocationCity>,
     @InjectRepository(LocationAirport)
     private readonly airportRepository: Repository<LocationAirport>,
+    private readonly transitCacheService: TransitCacheService,
   ) {}
 
   async listCountries(query: ListLocationCountriesQueryDto): Promise<{
@@ -179,6 +186,17 @@ export class LocationsService {
       }
       throw error;
     }
+  }
+
+  async getPointMatrixStatuses(pointIdsRaw: string): Promise<{
+    items: AdminPointMatrixStatusView[];
+  }> {
+    const pointIds = this.parsePointIds(pointIdsRaw);
+    const summaryMap =
+      await this.transitCacheService.getPointMatrixStatuses(pointIds);
+    return {
+      items: pointIds.map((pointId) => summaryMap[pointId]),
+    };
   }
 
   private buildCityListQuery(
@@ -323,5 +341,16 @@ export class LocationsService {
       'en-US': en,
       'mn-MN': mn,
     };
+  }
+
+  private parsePointIds(pointIdsRaw: string): string[] {
+    return Array.from(
+      new Set(
+        (pointIdsRaw || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0),
+      ),
+    ).slice(0, 1000);
   }
 }

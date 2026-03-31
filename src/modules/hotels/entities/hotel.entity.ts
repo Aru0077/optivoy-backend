@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
 
 export interface HotelIntroI18n {
   'zh-CN'?: string;
@@ -14,6 +15,13 @@ export interface HotelIntroI18n {
 }
 
 export interface HotelGuideI18n {
+  'zh-CN'?: string;
+  'mn-MN'?: string;
+  'en-US'?: string;
+  [key: string]: string | undefined;
+}
+
+export interface HotelNoticeI18n {
   'zh-CN'?: string;
   'mn-MN'?: string;
   'en-US'?: string;
@@ -75,6 +83,9 @@ export class HotelPlace {
   @Column({ type: 'jsonb', nullable: true })
   guideI18n: HotelGuideI18n | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  noticeI18n: HotelNoticeI18n | null;
+
   @Column({ type: 'int', nullable: true })
   starLevel: number | null;
 
@@ -90,11 +101,23 @@ export class HotelPlace {
   @Column({ type: 'varchar', length: 500, nullable: true })
   bookingUrl: string | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  pricePerNightMinCny: string | null;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  pricePerNightMinCny: number | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  pricePerNightMaxCny: string | null;
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
+  pricePerNightMaxCny: number | null;
 
   @Column({ default: true })
   isPublished: boolean;

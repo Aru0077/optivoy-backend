@@ -128,11 +128,6 @@ export class SpotPublicService {
     if (query.city) {
       qb.andWhere('spot.city ILIKE :city', { city: `%${query.city.trim()}%` });
     }
-    if (query.placeType) {
-      qb.andWhere('spot."placeType" = :placeType', {
-        placeType: query.placeType,
-      });
-    }
   }
 
   private baseSpotSelects(): string[] {
@@ -150,6 +145,7 @@ export class SpotPublicService {
       'spot."coverImageUrl" AS "coverImageUrl"',
       'spot."introI18n" AS "introI18n"',
       'spot."guideI18n" AS "guideI18n"',
+      'spot."noticeI18n" AS "noticeI18n"',
       'spot."suggestedDurationMinutes" AS "suggestedDurationMinutes"',
       'spot."reservationRequired" AS "reservationRequired"',
       'spot."reservationUrl" AS "reservationUrl"',
@@ -157,7 +153,6 @@ export class SpotPublicService {
       'spot."closedWeekdays" AS "closedWeekdays"',
       'spot."ticketPriceMinCny" AS "ticketPriceMinCny"',
       'spot."ticketPriceMaxCny" AS "ticketPriceMaxCny"',
-      'spot."placeType" AS "placeType"',
       'spot."isPublished" AS "isPublished"',
       'spot."createdAt" AS "createdAt"',
       'spot."updatedAt" AS "updatedAt"',

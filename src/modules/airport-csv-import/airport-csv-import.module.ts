@@ -7,6 +7,7 @@ import { LocationCity } from '../locations/entities/location-city.entity';
 import { LocationCountryRef } from '../locations/entities/location-country-ref.entity';
 import { LocationProvince } from '../locations/entities/location-province.entity';
 import { LocationRegionRef } from '../locations/entities/location-region-ref.entity';
+import { TransitCacheModule } from '../transit-cache/transit-cache.module';
 import { UsersModule } from '../users/users.module';
 import { AdminAirportCsvImportController } from './admin-airport-csv-import.controller';
 import { AirportCsvImportService } from './airport-csv-import.service';
@@ -22,6 +23,7 @@ import { AirportCsvImportService } from './airport-csv-import.service';
     ]),
     AuditModule,
     UsersModule,
+    TransitCacheModule,
   ],
   controllers: [AdminAirportCsvImportController],
   providers: [AirportCsvImportService, RolesGuard],

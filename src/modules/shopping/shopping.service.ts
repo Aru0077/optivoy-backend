@@ -15,19 +15,35 @@ import { UpdateShoppingDto } from './dto/update-shopping.dto';
 import { ShoppingPlace } from './entities/shopping.entity';
 import { ShoppingView } from './shopping.types';
 import {
+  ensureGuideI18n,
+  ensureIntroI18n,
+  ensureNoticeI18n,
+  ensureRegionI18n,
+  ensureTextI18n,
   resolveGuide,
   resolveIntro,
   resolveName,
-  toCyrillicApprox,
-  toNullableNumber,
+  resolveNotice,
 } from '../../common/utils/content-i18n.util';
+import {
+  BasePlaceService,
+  BasePlaceUpdatePayload,
+} from '../../common/services/base-place.service';
+import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
+import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
+import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
 @Injectable()
-export class ShoppingService {
+export class ShoppingService extends BasePlaceService<ShoppingPlace> {
   constructor(
     @InjectRepository(ShoppingPlace)
     private readonly shoppingRepository: Repository<ShoppingPlace>,
-  ) {}
+    private readonly tripPlannerCacheService: TripPlannerCacheService,
+    private readonly transitCacheService: TransitCacheService,
+    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
+  ) {
+    super();
+  }
 
   async createShopping(dto: CreateShoppingDto): Promise<ShoppingView> {
     if (
@@ -42,60 +58,32 @@ export class ShoppingService {
       });
     }
 
-    const provinceEn = dto.province.trim();
-    const provinceMn = dto.provinceMnMN.trim();
-    const provinceZh = dto.provinceZhCN.trim();
-    const cityEn = dto.city.trim();
-    const cityMn = dto.cityMnMN.trim();
-    const cityZh = dto.cityZhCN.trim();
-
-    const nameI18n = {
-      'zh-CN': dto.nameZhCN.trim(),
-      'mn-MN': dto.nameMnMN.trim(),
-      'en-US': dto.nameEn.trim(),
-    };
-    const provinceI18n = {
-      'zh-CN': provinceZh,
-      'en-US': provinceEn,
-      'mn-MN': provinceMn,
-    };
-    const cityI18n = {
-      'zh-CN': cityZh,
-      'en-US': cityEn,
-      'mn-MN': cityMn,
-    };
-
     const item = this.shoppingRepository.create({
-      name: nameI18n['zh-CN'],
-      nameI18n,
-      country: 'CN',
-      province: provinceEn,
-      provinceI18n,
-      city: cityEn,
-      cityI18n,
-      latitude: dto.latitude ?? null,
-      longitude: dto.longitude ?? null,
-      coverImageUrl: dto.coverImageUrl?.trim() || null,
-      introI18n: {
-        'zh-CN': dto.introZhCN.trim(),
-        'mn-MN': dto.introMnMN.trim(),
-        'en-US': dto.introEn.trim(),
-      },
-      guideI18n: {
-        'zh-CN': dto.guideZhCN.trim(),
-        'mn-MN': dto.guideMnMN.trim(),
-        'en-US': dto.guideEn.trim(),
-      },
+      ...this.buildBaseCreatePayload(dto),
       openingHours: dto.openingHours?.trim() || null,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
-      avgSpendMinCny:
-        dto.avgSpendMinCny !== undefined ? dto.avgSpendMinCny.toFixed(2) : null,
-      avgSpendMaxCny:
-        dto.avgSpendMaxCny !== undefined ? dto.avgSpendMaxCny.toFixed(2) : null,
+      avgSpendMinCny: dto.avgSpendMinCny ?? null,
+      avgSpendMaxCny: dto.avgSpendMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
     });
 
     const saved = await this.shoppingRepository.save(item);
+    this.tripPlannerCacheService.invalidateAll();
+    await this.transitCacheService.deletePointEdges(saved.id);
+    if (
+      saved.isPublished &&
+      saved.latitude !== null &&
+      saved.longitude !== null
+    ) {
+      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
+        id: saved.id,
+        pointType: 'shopping',
+        city: saved.city,
+        province: saved.province,
+        latitude: saved.latitude,
+        longitude: saved.longitude,
+      });
+    }
     return this.mapShopping(saved, 'zh-CN');
   }
 
@@ -111,108 +99,7 @@ export class ShoppingService {
       });
     }
 
-    if (
-      dto.nameZhCN !== undefined ||
-      dto.nameMnMN !== undefined ||
-      dto.nameEn !== undefined
-    ) {
-      item.nameI18n = {
-        ...((item.nameI18n as Record<string, string>) ?? {}),
-        ...(dto.nameZhCN !== undefined ? { 'zh-CN': dto.nameZhCN.trim() } : {}),
-        ...(dto.nameMnMN !== undefined ? { 'mn-MN': dto.nameMnMN.trim() } : {}),
-        ...(dto.nameEn !== undefined ? { 'en-US': dto.nameEn.trim() } : {}),
-      };
-      item.name = resolveName(item.nameI18n as Record<string, string>, 'zh-CN');
-    }
-
-    if (
-      dto.province !== undefined ||
-      dto.provinceMnMN !== undefined ||
-      dto.provinceZhCN !== undefined
-    ) {
-      const nextProvinceEn = dto.province?.trim() ?? item.province;
-      const provinceI18n = {
-        ...((item.provinceI18n as Record<string, string>) ?? {
-          'zh-CN': item.province,
-          'en-US': item.province,
-          'mn-MN': toCyrillicApprox(item.province),
-        }),
-        ...(dto.province !== undefined ? { 'en-US': nextProvinceEn } : {}),
-        ...(dto.provinceZhCN !== undefined
-          ? { 'zh-CN': dto.provinceZhCN.trim() }
-          : {}),
-        ...(dto.provinceMnMN !== undefined
-          ? { 'mn-MN': dto.provinceMnMN.trim() }
-          : {}),
-      };
-      if (dto.province !== undefined && dto.provinceMnMN === undefined) {
-        provinceI18n['mn-MN'] = toCyrillicApprox(nextProvinceEn);
-      }
-      item.province = nextProvinceEn;
-      item.provinceI18n = provinceI18n;
-    }
-
-    if (
-      dto.city !== undefined ||
-      dto.cityMnMN !== undefined ||
-      dto.cityZhCN !== undefined
-    ) {
-      const nextCityEn = dto.city?.trim() ?? item.city;
-      const cityI18n = {
-        ...((item.cityI18n as Record<string, string>) ?? {
-          'zh-CN': item.city,
-          'en-US': item.city,
-          'mn-MN': toCyrillicApprox(item.city),
-        }),
-        ...(dto.city !== undefined ? { 'en-US': nextCityEn } : {}),
-        ...(dto.cityZhCN !== undefined ? { 'zh-CN': dto.cityZhCN.trim() } : {}),
-        ...(dto.cityMnMN !== undefined ? { 'mn-MN': dto.cityMnMN.trim() } : {}),
-      };
-      if (dto.city !== undefined && dto.cityMnMN === undefined) {
-        cityI18n['mn-MN'] = toCyrillicApprox(nextCityEn);
-      }
-      item.city = nextCityEn;
-      item.cityI18n = cityI18n;
-    }
-
-    if (dto.latitude !== undefined) item.latitude = dto.latitude;
-    if (dto.longitude !== undefined) item.longitude = dto.longitude;
-    if (dto.coverImageUrl !== undefined)
-      item.coverImageUrl = dto.coverImageUrl?.trim() || null;
-
-    if (
-      dto.introZhCN !== undefined ||
-      dto.introMnMN !== undefined ||
-      dto.introEn !== undefined
-    ) {
-      item.introI18n = {
-        ...item.introI18n,
-        ...(dto.introZhCN !== undefined
-          ? { 'zh-CN': dto.introZhCN.trim() }
-          : {}),
-        ...(dto.introMnMN !== undefined
-          ? { 'mn-MN': dto.introMnMN.trim() }
-          : {}),
-        ...(dto.introEn !== undefined ? { 'en-US': dto.introEn.trim() } : {}),
-      };
-    }
-
-    if (
-      dto.guideZhCN !== undefined ||
-      dto.guideMnMN !== undefined ||
-      dto.guideEn !== undefined
-    ) {
-      item.guideI18n = {
-        ...(item.guideI18n ?? {}),
-        ...(dto.guideZhCN !== undefined
-          ? { 'zh-CN': dto.guideZhCN.trim() }
-          : {}),
-        ...(dto.guideMnMN !== undefined
-          ? { 'mn-MN': dto.guideMnMN.trim() }
-          : {}),
-        ...(dto.guideEn !== undefined ? { 'en-US': dto.guideEn.trim() } : {}),
-      };
-    }
+    this.applyBaseUpdates(item, dto as BasePlaceUpdatePayload);
 
     if (dto.openingHours !== undefined) {
       item.openingHours = dto.openingHours?.trim() || null;
@@ -226,13 +113,13 @@ export class ShoppingService {
         ? dto.avgSpendMinCny
         : item.avgSpendMinCny === null
           ? null
-          : Number(item.avgSpendMinCny);
+          : item.avgSpendMinCny;
     const nextAvgSpendMaxCny =
       dto.avgSpendMaxCny !== undefined
         ? dto.avgSpendMaxCny
         : item.avgSpendMaxCny === null
           ? null
-          : Number(item.avgSpendMaxCny);
+          : item.avgSpendMaxCny;
 
     if (
       nextAvgSpendMinCny !== null &&
@@ -247,17 +134,29 @@ export class ShoppingService {
     }
 
     if (dto.avgSpendMinCny !== undefined) {
-      item.avgSpendMinCny = dto.avgSpendMinCny.toFixed(2);
+      item.avgSpendMinCny = dto.avgSpendMinCny;
     }
     if (dto.avgSpendMaxCny !== undefined) {
-      item.avgSpendMaxCny = dto.avgSpendMaxCny.toFixed(2);
-    }
-
-    if (dto.isPublished !== undefined) {
-      item.isPublished = dto.isPublished;
+      item.avgSpendMaxCny = dto.avgSpendMaxCny;
     }
 
     const saved = await this.shoppingRepository.save(item);
+    this.tripPlannerCacheService.invalidateAll();
+    await this.transitCacheService.deletePointEdges(saved.id);
+    if (
+      saved.isPublished &&
+      saved.latitude !== null &&
+      saved.longitude !== null
+    ) {
+      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
+        id: saved.id,
+        pointType: 'shopping',
+        city: saved.city,
+        province: saved.province,
+        latitude: saved.latitude,
+        longitude: saved.longitude,
+      });
+    }
     return this.mapShopping(saved, 'zh-CN');
   }
 
@@ -269,21 +168,39 @@ export class ShoppingService {
         message: 'Shopping place not found.',
       });
     }
+    this.tripPlannerCacheService.invalidateAll();
+    await this.transitCacheService.deletePointEdges(itemId);
   }
 
   async listAdminShopping(
     query: ListAdminShoppingQueryDto,
   ): Promise<{ total: number; items: ShoppingView[] }> {
-    const where: { isPublished?: boolean } = {};
+    const qb = this.shoppingRepository
+      .createQueryBuilder('shopping')
+      .orderBy('shopping."createdAt"', 'DESC');
+
     if (query.isPublished !== undefined) {
-      where.isPublished = query.isPublished;
+      qb.andWhere('shopping."isPublished" = :isPublished', {
+        isPublished: query.isPublished,
+      });
     }
-    const [items, total] = await this.shoppingRepository.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      take: query.limit,
-      skip: query.offset,
-    });
+    if (query.province) {
+      qb.andWhere('shopping.province ILIKE :province', {
+        province: `%${query.province}%`,
+      });
+    }
+    if (query.city) {
+      qb.andWhere('shopping.city ILIKE :city', {
+        city: `%${query.city}%`,
+      });
+    }
+
+    const total = await qb.getCount();
+    const items = await qb
+      .take(query.limit)
+      .skip(query.offset)
+      .getMany();
+
     return {
       total,
       items: items.map((item) => this.mapShopping(item, 'zh-CN')),
@@ -350,23 +267,12 @@ export class ShoppingService {
   }
 
   private mapShopping(item: ShoppingPlace, lang: ShoppingLang): ShoppingView {
-    const nameI18n = (item.nameI18n ?? {
-      'mn-MN': item.name,
-      'en-US': item.name,
-      'zh-CN': item.name,
-    }) as Record<string, string>;
-    const provinceI18n = (item.provinceI18n ?? {
-      'en-US': item.province,
-      'mn-MN': toCyrillicApprox(item.province),
-      'zh-CN': item.province,
-    }) as Record<string, string>;
-    const cityI18n = (item.cityI18n ?? {
-      'en-US': item.city,
-      'mn-MN': toCyrillicApprox(item.city),
-      'zh-CN': item.city,
-    }) as Record<string, string>;
-    const introI18n = item.introI18n ?? {};
-    const guideI18n = item.guideI18n ?? {};
+    const nameI18n = ensureTextI18n(item.nameI18n, item.name);
+    const provinceI18n = ensureRegionI18n(item.provinceI18n, item.province);
+    const cityI18n = ensureRegionI18n(item.cityI18n, item.city);
+    const introI18n = ensureIntroI18n(item.introI18n);
+    const guideI18n = ensureGuideI18n(item.guideI18n);
+    const noticeI18n = ensureNoticeI18n(item.noticeI18n);
 
     return {
       id: item.id,
@@ -377,17 +283,19 @@ export class ShoppingService {
       provinceI18n,
       city: item.city,
       cityI18n,
-      latitude: toNullableNumber(item.latitude),
-      longitude: toNullableNumber(item.longitude),
+      latitude: item.latitude,
+      longitude: item.longitude,
       coverImageUrl: item.coverImageUrl,
       intro: resolveIntro(introI18n, lang),
       introI18n,
       guide: resolveGuide(guideI18n, lang),
       guideI18n,
+      notice: resolveNotice(noticeI18n, lang),
+      noticeI18n,
       openingHours: item.openingHours?.trim() || null,
       suggestedDurationMinutes: item.suggestedDurationMinutes ?? 240,
-      avgSpendMinCny: toNullableNumber(item.avgSpendMinCny),
-      avgSpendMaxCny: toNullableNumber(item.avgSpendMaxCny),
+      avgSpendMinCny: item.avgSpendMinCny,
+      avgSpendMaxCny: item.avgSpendMaxCny,
       isPublished: item.isPublished,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,

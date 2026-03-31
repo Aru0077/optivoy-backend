@@ -14,6 +14,8 @@ export interface ShoppingView {
   introI18n: Record<string, string | undefined>;
   guide: string;
   guideI18n: Record<string, string | undefined>;
+  notice: string;
+  noticeI18n: Record<string, string | undefined>;
   openingHours: string | null;
   suggestedDurationMinutes: number;
   avgSpendMinCny: number | null;

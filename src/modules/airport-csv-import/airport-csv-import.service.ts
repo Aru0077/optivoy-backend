@@ -8,6 +8,8 @@ import {
   LocationProvince,
 } from '../locations/entities/location-province.entity';
 import { LocationRegionRef } from '../locations/entities/location-region-ref.entity';
+import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
+import { TransitCacheService } from '../transit-cache/transit-cache.service';
 import { LocationCsvDatasetType } from './dto/import-airports-csv.dto';
 
 type DetectedDatasetType = 'countries' | 'regions' | 'airports';
@@ -71,6 +73,7 @@ export interface AirportCsvImportResult {
   validRows: number;
   created: number;
   updated: number;
+  deleted: number;
   skipped: number;
   errors: ImportErrorItem[];
 }
@@ -78,7 +81,6 @@ export interface AirportCsvImportResult {
 @Injectable()
 export class AirportCsvImportService {
   private static readonly ALLOWED_COUNTRY_CODES = new Set(['CN', 'MN']);
-  private static readonly ALLOWED_IATA_CODES = new Set(['ULN', 'UBN']);
 
   private static readonly CN_REGION_CODE_TO_NAME: Record<string, string> = {
     BJ: 'Beijing',
@@ -117,7 +119,11 @@ export class AirportCsvImportService {
     TW: 'Taiwan',
   };
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
+    private readonly transitCacheService: TransitCacheService,
+  ) {}
 
   async importFromCsv(input: ImportCsvInput): Promise<AirportCsvImportResult> {
     const csvRows = this.parseCsvRows(input.csvContent);
@@ -213,6 +219,7 @@ export class AirportCsvImportService {
       validRows: parsed.rows.length,
       created: result.created,
       updated: result.updated,
+      deleted: 0,
       skipped: parsed.skipped + result.skipped,
       errors: result.errors.slice(0, 100),
     };
@@ -319,6 +326,7 @@ export class AirportCsvImportService {
       validRows: parsed.rows.length,
       created: result.created,
       updated: result.updated,
+      deleted: 0,
       skipped: parsed.skipped + result.skipped,
       errors: result.errors.slice(0, 100),
     };
@@ -337,6 +345,10 @@ export class AirportCsvImportService {
       });
     }
 
+    const touchedCities = new Map<string, { city: string; province: string }>();
+    const importedAirportCodes = [
+      ...new Set(parsed.rows.map((row) => row.airportCode)),
+    ];
     const result = await this.dataSource.transaction(async (manager) => {
       const airportRepo = manager.getRepository(LocationAirport);
       const regionRepo = manager.getRepository(LocationRegionRef);
@@ -367,6 +379,7 @@ export class AirportCsvImportService {
 
       let created = 0;
       let updated = 0;
+      let deleted = 0;
       let skipped = 0;
       const rowErrors: ImportErrorItem[] = [...parsed.errors];
 
@@ -392,6 +405,13 @@ export class AirportCsvImportService {
             provinceCache,
             cityCache,
           );
+          const cityKey = `${city.name}\u0000${province.name}`.toLowerCase();
+          if (!touchedCities.has(cityKey)) {
+            touchedCities.set(cityKey, {
+              city: city.name,
+              province: province.name,
+            });
+          }
 
           const existingAirport = existingAirportByCode.get(row.airportCode);
           const nextName =
@@ -438,13 +458,48 @@ export class AirportCsvImportService {
         }
       }
 
+      const staleAirports = await this.findStaleAirportsForAllowedCountries(
+        manager,
+        importedAirportCodes,
+      );
+      if (staleAirports.length > 0) {
+        const staleIds = staleAirports.map((item) => item.id);
+        await airportRepo.delete(staleIds);
+        deleted = staleAirports.length;
+
+        for (const item of staleAirports) {
+          const cityKey = `${item.city}\u0000${item.province}`.toLowerCase();
+          if (!touchedCities.has(cityKey)) {
+            touchedCities.set(cityKey, {
+              city: item.city,
+              province: item.province,
+            });
+          }
+        }
+      }
+
       return {
         created,
         updated,
+        deleted,
         skipped,
         errors: rowErrors,
+        deletedAirportIds: staleAirports.map((item) => item.id),
       };
     });
+
+    if (result.deletedAirportIds.length > 0) {
+      await this.transitCacheService.deletePointEdgesByIds(
+        result.deletedAirportIds,
+      );
+    }
+
+    for (const item of touchedCities.values()) {
+      this.transitCachePrecomputeService.scheduleRecomputeCity(
+        item.city,
+        item.province,
+      );
+    }
 
     return {
       datasetType: 'airports',
@@ -453,9 +508,37 @@ export class AirportCsvImportService {
       validRows: parsed.rows.length,
       created: result.created,
       updated: result.updated,
+      deleted: result.deleted,
       skipped: parsed.skipped + result.skipped,
       errors: result.errors.slice(0, 100),
     };
+  }
+
+  private async findStaleAirportsForAllowedCountries(
+    manager: EntityManager,
+    importedAirportCodes: string[],
+  ): Promise<Array<{ id: string; city: string; province: string }>> {
+    if (importedAirportCodes.length === 0) {
+      return [];
+    }
+
+    return manager
+      .getRepository(LocationAirport)
+      .createQueryBuilder('airport')
+      .leftJoin('airport.city', 'city')
+      .leftJoin('city.province', 'province')
+      .select([
+        'airport.id AS id',
+        'city.name AS city',
+        'province.name AS province',
+      ])
+      .where('province.country IN (:...countries)', {
+        countries: [...AirportCsvImportService.ALLOWED_COUNTRY_CODES],
+      })
+      .andWhere('airport."airportCode" NOT IN (:...codes)', {
+        codes: importedAirportCodes,
+      })
+      .getRawMany<{ id: string; city: string; province: string }>();
   }
 
   private async upsertProvinceCity(
@@ -904,10 +987,10 @@ export class AirportCsvImportService {
     isoCountry: string,
     airportCode: string,
   ): boolean {
-    if (isoCountry === 'CN') {
-      return true;
+    if (!AirportCsvImportService.ALLOWED_COUNTRY_CODES.has(isoCountry)) {
+      return false;
     }
-    return AirportCsvImportService.ALLOWED_IATA_CODES.has(airportCode);
+    return /^[A-Z]{3}$/.test(airportCode);
   }
 
   private resolveProvinceInfo(

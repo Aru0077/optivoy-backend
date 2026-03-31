@@ -37,6 +37,11 @@ export class AdminLocationsController {
     return this.locationsService.listAirports(query);
   }
 
+  @Get('matrix-status')
+  getPointMatrixStatus(@Query('pointIds') pointIds: string) {
+    return this.locationsService.getPointMatrixStatuses(pointIds || '');
+  }
+
   @Delete('airports/:airportId')
   deleteAirport(@Param('airportId') airportId: string) {
     return this.locationsService.deleteAirportById(airportId);

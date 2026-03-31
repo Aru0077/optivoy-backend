@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://optivoy.top/schemas/trip-planner/optimizer-solve-request.schema.json",
+  "title": "OptimizerSolveRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "arrivalDateTime",
+    "airportBufferMinutes",
+    "paceMode",
+    "hotelMode",
+    "mealPolicy",
+    "points",
+    "hotels",
+    "distanceMatrix",
+    "objective",
+    "maxDays",
+    "timeLimitSeconds"
+  ],
+  "properties": {
+    "city": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "province": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "arrivalAirportCode": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "departureAirportCode": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "arrivalAirportId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "departureAirportId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "arrivalAirport": {
+      "$ref": "#/$defs/coordinate"
+    },
+    "departureAirport": {
+      "$ref": "#/$defs/coordinate"
+    },
+    "arrivalDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "airportBufferMinutes": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 120
+    },
+    "paceMode": {
+      "type": "string",
+      "enum": [
+        "light",
+        "standard",
+        "compact"
+      ]
+    },
+    "hotelMode": {
+      "type": "string",
+      "enum": [
+        "single",
+        "multi"
+      ]
+    },
+    "mealPolicy": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "off"
+      ]
+    },
+    "points": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    },
+    "hotels": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/hotel"
+      }
+    },
+    "distanceMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "maxItems": 300000,
+          "items": {
+            "$ref": "#/$defs/distanceMatrixRow"
+          }
+        }
+      }
+    },
+    "objective": {
+      "type": "string",
+      "enum": [
+        "min_days",
+        "min_transit",
+        "min_days_then_transit"
+      ]
+    },
+    "maxDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 14
+    },
+    "timeLimitSeconds": {
+      "type": "number",
+      "minimum": 0.2,
+      "maximum": 30
+    }
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pointType",
+        "suggestedDurationMinutes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pointType": {
+          "type": "string",
+          "enum": [
+            "spot",
+            "shopping",
+            "restaurant"
+          ]
+        },
+        "suggestedDurationMinutes": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 720
+        },
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "hotel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "distanceMatrixRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromPointId",
+        "toPointId",
+        "transitMinutes",
+        "drivingMinutes",
+        "walkingMeters",
+        "distanceKm"
+      ],
+      "properties": {
+        "fromPointId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "toPointId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "transitMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "drivingMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "walkingMeters": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200000
+        },
+        "distanceKm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "transitSummary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

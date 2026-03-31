@@ -6,12 +6,14 @@ import { APP_GUARD } from '@nestjs/core';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { amapConfig } from './config/amap.config';
 import { appConfig } from './config/app.config';
 import { authConfig } from './config/auth.config';
 import { validationSchema } from './config/config.validation';
 import { DatabaseConfig, databaseConfig } from './config/database.config';
 import { mailConfig } from './config/mail.config';
 import { observabilityConfig } from './config/observability.config';
+import { optimizerConfig } from './config/optimizer.config';
 import { ossConfig } from './config/oss.config';
 import { plannerConfig } from './config/planner.config';
 import { redisConfig } from './config/redis.config';
@@ -21,6 +23,7 @@ import { HomeModule } from './modules/home/home.module';
 import { HotelModule } from './modules/hotels/hotel.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RestaurantModule } from './modules/restaurants/restaurant.module';
 import { ShoppingModule } from './modules/shopping/shopping.module';
 import { SpotsModule } from './modules/spots/spots.module';
 import { TripPlannerModule } from './modules/trip-planner/trip-planner.module';
@@ -32,6 +35,8 @@ import { UploadsModule } from './modules/uploads/uploads.module';
       isGlobal: true,
       load: [
         appConfig,
+        amapConfig,
+        optimizerConfig,
         databaseConfig,
         authConfig,
         redisConfig,
@@ -65,6 +70,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     NotificationsModule,
     UploadsModule,
     SpotsModule,
+    RestaurantModule,
     ShoppingModule,
     HotelModule,
     TripPlannerModule,

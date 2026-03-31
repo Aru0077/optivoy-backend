@@ -3,13 +3,21 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { UsersModule } from '../users/users.module';
+import { TripPlannerModule } from '../trip-planner/trip-planner.module';
+import { TransitCacheModule } from '../transit-cache/transit-cache.module';
 import { AdminSpotsController } from './admin-spots.controller';
 import { Spot } from './entities/spot.entity';
 import { SpotsController } from './spots.controller';
 import { SpotsService } from './spots.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Spot]), AuditModule, UsersModule],
+  imports: [
+    TypeOrmModule.forFeature([Spot]),
+    AuditModule,
+    UsersModule,
+    TripPlannerModule,
+    TransitCacheModule,
+  ],
   controllers: [SpotsController, AdminSpotsController],
   providers: [SpotsService, RolesGuard],
   exports: [SpotsService],

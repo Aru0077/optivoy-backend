@@ -1,4 +1,5 @@
 export type ContentLang = 'mn-MN' | 'en-US' | 'zh-CN';
+export type LocalizedTextMap = Record<string, string | undefined>;
 
 export function toNullableNumber(
   value: number | string | null | undefined,
@@ -17,39 +18,35 @@ export function resolveIntro(
   introI18n: Record<string, string | undefined>,
   lang: ContentLang,
 ): string {
-  if (lang === 'zh-CN') {
-    return introI18n['zh-CN'] ?? introI18n['en-US'] ?? introI18n['mn-MN'] ?? '';
-  }
-  if (lang === 'en-US') {
-    return introI18n['en-US'] ?? introI18n['mn-MN'] ?? introI18n['zh-CN'] ?? '';
-  }
-  return introI18n['mn-MN'] ?? introI18n['en-US'] ?? introI18n['zh-CN'] ?? '';
+  return resolveLocalizedText(introI18n, lang);
 }
 
 export function resolveGuide(
   guideI18n: Record<string, string | undefined>,
   lang: ContentLang,
 ): string {
-  if (lang === 'zh-CN') {
-    return guideI18n['zh-CN'] ?? guideI18n['en-US'] ?? guideI18n['mn-MN'] ?? '';
-  }
-  if (lang === 'en-US') {
-    return guideI18n['en-US'] ?? guideI18n['mn-MN'] ?? guideI18n['zh-CN'] ?? '';
-  }
-  return guideI18n['mn-MN'] ?? guideI18n['en-US'] ?? guideI18n['zh-CN'] ?? '';
+  return resolveLocalizedText(guideI18n, lang);
+}
+
+export function resolveNotice(
+  noticeI18n: Record<string, string | undefined>,
+  lang: ContentLang,
+): string {
+  return resolveLocalizedText(noticeI18n, lang);
+}
+
+export function resolveReservationNote(
+  reservationNoteI18n: Record<string, string | undefined>,
+  lang: ContentLang,
+): string {
+  return resolveLocalizedText(reservationNoteI18n, lang);
 }
 
 export function resolveName(
   nameI18n: Record<string, string>,
   lang: ContentLang,
 ): string {
-  if (lang === 'zh-CN') {
-    return nameI18n['zh-CN'] ?? nameI18n['en-US'] ?? nameI18n['mn-MN'] ?? '';
-  }
-  if (lang === 'en-US') {
-    return nameI18n['en-US'] ?? nameI18n['mn-MN'] ?? nameI18n['zh-CN'] ?? '';
-  }
-  return nameI18n['mn-MN'] ?? nameI18n['en-US'] ?? nameI18n['zh-CN'] ?? '';
+  return resolveLocalizedText(nameI18n, lang);
 }
 
 export function toCyrillicApprox(rawLatin: string): string {
@@ -100,4 +97,63 @@ export function toCyrillicApprox(rawLatin: string): string {
     .replace(/x/gi, 'кс')
     .replace(/y/gi, 'й')
     .replace(/z/gi, 'з');
+}
+
+export function ensureTextI18n(
+  raw: LocalizedTextMap | null | undefined,
+  fallback: string,
+): Record<string, string> {
+  return {
+    'zh-CN': raw?.['zh-CN']?.trim() || fallback,
+    'en-US': raw?.['en-US']?.trim() || fallback,
+    'mn-MN': raw?.['mn-MN']?.trim() || toCyrillicApprox(fallback),
+  };
+}
+
+export function ensureRegionI18n(
+  raw: LocalizedTextMap | null | undefined,
+  fallback: string,
+): Record<string, string> {
+  return ensureTextI18n(raw, fallback);
+}
+
+export function ensureIntroI18n(
+  raw: LocalizedTextMap | null | undefined,
+): Record<string, string | undefined> {
+  return {
+    'zh-CN': raw?.['zh-CN']?.trim() ?? '',
+    'en-US': raw?.['en-US']?.trim() ?? '',
+    'mn-MN': raw?.['mn-MN']?.trim() ?? '',
+  };
+}
+
+export function ensureGuideI18n(
+  raw: LocalizedTextMap | null | undefined,
+): Record<string, string | undefined> {
+  return ensureIntroI18n(raw);
+}
+
+export function ensureNoticeI18n(
+  raw: LocalizedTextMap | null | undefined,
+): Record<string, string | undefined> {
+  return ensureIntroI18n(raw);
+}
+
+export function ensureReservationNoteI18n(
+  raw: LocalizedTextMap | null | undefined,
+): Record<string, string | undefined> {
+  return ensureIntroI18n(raw);
+}
+
+function resolveLocalizedText(
+  i18n: LocalizedTextMap,
+  lang: ContentLang,
+): string {
+  if (lang === 'zh-CN') {
+    return i18n['zh-CN'] ?? i18n['en-US'] ?? i18n['mn-MN'] ?? '';
+  }
+  if (lang === 'en-US') {
+    return i18n['en-US'] ?? i18n['mn-MN'] ?? i18n['zh-CN'] ?? '';
+  }
+  return i18n['mn-MN'] ?? i18n['en-US'] ?? i18n['zh-CN'] ?? '';
 }

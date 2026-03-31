@@ -219,36 +219,6 @@ export const validationSchema = Joi.object({
     .allow('')
     .default(''),
 
-  // Itinerary AI planner
-  ITINERARY_AI_ENABLED: Joi.boolean()
-    .truthy('true')
-    .falsy('false')
-    .default(false),
-  ITINERARY_AI_PRIMARY_PROVIDER: Joi.string()
-    .valid('deepseek', 'qwen')
-    .default('deepseek'),
-  ITINERARY_AI_API_BASE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('https://api.deepseek.com/v1'),
-  ITINERARY_AI_API_KEY: Joi.string().allow('').optional(),
-  ITINERARY_AI_MODEL: Joi.string().default('deepseek-chat'),
-  ITINERARY_AI_DEEPSEEK_API_BASE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('https://api.deepseek.com/v1'),
-  ITINERARY_AI_DEEPSEEK_API_KEY: Joi.string().allow('').optional(),
-  ITINERARY_AI_DEEPSEEK_MODEL: Joi.string().default('deepseek-chat'),
-  ITINERARY_AI_QWEN_API_BASE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('https://dashscope.aliyuncs.com/compatible-mode/v1'),
-  ITINERARY_AI_QWEN_API_KEY: Joi.string().allow('').optional(),
-  ITINERARY_AI_QWEN_MODEL: Joi.string().default('qwen-plus'),
-  ITINERARY_AI_TIMEOUT_MS: Joi.number()
-    .integer()
-    .min(3000)
-    .max(120000)
-    .default(30000),
-  ITINERARY_AI_MAX_RETRIES: Joi.number().integer().min(0).max(5).default(1),
-
   // Trip deep links
   TRIP_DEFAULT_LOCALE: Joi.string().default('en-US'),
   TRIP_DEFAULT_CURRENCY: Joi.string().default('USD'),
@@ -261,6 +231,46 @@ export const validationSchema = Joi.object({
   TRIP_AFFILIATE_AID: Joi.string().allow('').default(''),
   TRIP_AFFILIATE_SID: Joi.string().allow('').default(''),
   TRIP_AFFILIATE_OUID: Joi.string().allow('').default(''),
+
+  // Amap
+  AMAP_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  AMAP_WEB_API_KEY: Joi.when('AMAP_ENABLED', {
+    is: true,
+    then: Joi.string().trim().required(),
+    otherwise: Joi.string().allow('').default(''),
+  }),
+  AMAP_NEARBY_DEFAULT_RADIUS: Joi.number()
+    .integer()
+    .min(100)
+    .max(50000)
+    .default(5000),
+  AMAP_NEARBY_MAX_LIMIT: Joi.number().integer().min(1).max(50).default(20),
+  AMAP_REQUEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .max(30000)
+    .default(8000),
+  AMAP_DISTANCE_MATRIX_MAX_ORIGINS: Joi.number()
+    .integer()
+    .min(1)
+    .max(50)
+    .default(25),
+
+  // Optimizer
+  OPTIMIZER_BASE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .default('http://127.0.0.1:8088'),
+  OPTIMIZER_SOLVE_PATH: Joi.string().default('/solve'),
+  OPTIMIZER_REQUEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .max(60000)
+    .default(10000),
+  OPTIMIZER_DEFAULT_TIME_LIMIT_SECONDS: Joi.number()
+    .min(0.2)
+    .max(30)
+    .default(2.5),
 
   // Observability
   OTEL_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
@@ -333,26 +343,6 @@ export const validationSchema = Joi.object({
     return helpers.error('any.invalid', {
       message:
         'AUTH_ADMIN_REFRESH_COOKIE_SECURE must be true when AUTH_ADMIN_REFRESH_COOKIE_SAME_SITE is none.',
-    });
-  }
-
-  const itineraryAiEnabled =
-    env.ITINERARY_AI_ENABLED === true || env.ITINERARY_AI_ENABLED === 'true';
-  const deepseekApiKey =
-    readNonEmpty('ITINERARY_AI_DEEPSEEK_API_KEY') ??
-    readNonEmpty('ITINERARY_AI_API_KEY');
-  const qwenApiKey = readNonEmpty('ITINERARY_AI_QWEN_API_KEY');
-
-  if (itineraryAiEnabled && !deepseekApiKey) {
-    return helpers.error('any.invalid', {
-      message:
-        'ITINERARY_AI_DEEPSEEK_API_KEY (or legacy ITINERARY_AI_API_KEY) is required when ITINERARY_AI_ENABLED is true.',
-    });
-  }
-  if (itineraryAiEnabled && !qwenApiKey) {
-    return helpers.error('any.invalid', {
-      message:
-        'ITINERARY_AI_QWEN_API_KEY is required when ITINERARY_AI_ENABLED is true for fallback.',
     });
   }
 

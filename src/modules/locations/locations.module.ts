@@ -11,6 +11,7 @@ import { AdminLocationsController } from './admin-locations.controller';
 import { LocationRegionRef } from './entities/location-region-ref.entity';
 import { LocationsController } from './locations.controller';
 import { LocationsService } from './locations.service';
+import { TransitCacheModule } from '../transit-cache/transit-cache.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { LocationsService } from './locations.service';
     ]),
     AuditModule,
     UsersModule,
+    TransitCacheModule,
   ],
   controllers: [LocationsController, AdminLocationsController],
   providers: [LocationsService, RolesGuard],

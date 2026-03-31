@@ -1,11 +1,3 @@
-import { SpotPlaceType } from './entities/spot.entity';
-
-export interface SpotPlaceTypeI18n {
-  'zh-CN': string;
-  'en-US': string;
-  'mn-MN': string;
-}
-
 export interface SpotRawRow {
   id: string;
   name: string;
@@ -20,6 +12,7 @@ export interface SpotRawRow {
   coverImageUrl: string | null;
   introI18n: Record<string, string | undefined>;
   guideI18n: Record<string, string | undefined> | null;
+  noticeI18n: Record<string, string | undefined> | null;
   suggestedDurationMinutes: number;
   reservationRequired: boolean;
   reservationUrl: string | null;
@@ -27,7 +20,6 @@ export interface SpotRawRow {
   closedWeekdays: number[] | null;
   ticketPriceMinCny: number | string | null;
   ticketPriceMaxCny: number | string | null;
-  placeType: SpotPlaceType;
   isPublished: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +41,8 @@ export interface SpotView {
   introI18n: Record<string, string | undefined>;
   guide: string;
   guideI18n: Record<string, string | undefined>;
+  notice: string;
+  noticeI18n: Record<string, string | undefined>;
   suggestedDurationMinutes: number;
   reservationRequired: boolean;
   reservationUrl: string | null;
@@ -57,8 +51,6 @@ export interface SpotView {
   closedWeekdays: number[];
   ticketPriceMinCny: number | null;
   ticketPriceMaxCny: number | null;
-  placeType: SpotPlaceType;
-  placeTypeI18n: SpotPlaceTypeI18n;
   isPublished: boolean;
   createdAt: Date;
   updatedAt: Date;
