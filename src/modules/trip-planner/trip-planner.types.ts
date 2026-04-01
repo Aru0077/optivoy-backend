@@ -86,6 +86,7 @@ export interface GeneratedTripResult {
     outboundFlight: string;
     returnFlight: string;
   };
+  optimizerDiagnostics?: Record<string, unknown>;
 }
 
 export interface TripPlannerMatrixCoverageStats {

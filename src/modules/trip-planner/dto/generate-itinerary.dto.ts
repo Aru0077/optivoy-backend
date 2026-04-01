@@ -63,4 +63,45 @@ export class GenerateItineraryDto {
   @IsString()
   @Matches(/^[A-Z]{3}$/)
   departureAirportCode?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  switchPenaltyMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  newHotelPenaltyMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  maxIterations?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  badDayTransitMinutesThreshold?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  badDayPenaltyMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0.2)
+  @Max(30)
+  timeLimitSeconds?: number;
 }

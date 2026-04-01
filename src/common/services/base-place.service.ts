@@ -64,8 +64,8 @@ export interface BasePlaceEntity {
   provinceI18n: Record<string, string | undefined> | null;
   city: string;
   cityI18n: Record<string, string | undefined> | null;
-  latitude: number | null;
-  longitude: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
   coverImageUrl: string | null;
   introI18n: Record<string, string | undefined>;
   guideI18n: Record<string, string | undefined> | null;
@@ -175,11 +175,11 @@ export abstract class BasePlaceService<T extends BasePlaceEntity> {
       };
     }
 
-    if (dto.latitude !== undefined) {
-      entity.latitude = dto.latitude;
+    if (dto.latitude !== undefined && 'latitude' in entity) {
+      (entity as { latitude: number | null }).latitude = dto.latitude;
     }
-    if (dto.longitude !== undefined) {
-      entity.longitude = dto.longitude;
+    if (dto.longitude !== undefined && 'longitude' in entity) {
+      (entity as { longitude: number | null }).longitude = dto.longitude;
     }
     if (dto.coverImageUrl !== undefined) {
       entity.coverImageUrl = dto.coverImageUrl?.trim() || null;

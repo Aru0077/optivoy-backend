@@ -76,12 +76,6 @@ export class Spot {
   cityI18n: SpotRegionI18n | null;
 
   @Column({ type: 'double precision', nullable: true })
-  latitude: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  longitude: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
   entryLatitude: number | null;
 
   @Column({ type: 'double precision', nullable: true })

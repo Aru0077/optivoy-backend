@@ -55,6 +55,11 @@ export interface OptimizerSolveRequest {
   objective: 'min_days' | 'min_transit' | 'min_days_then_transit';
   maxDays: number;
   timeLimitSeconds: number;
+  switchPenaltyMinutes?: number;
+  newHotelPenaltyMinutes?: number;
+  maxIterations?: number;
+  badDayTransitMinutesThreshold?: number;
+  badDayPenaltyMinutes?: number;
 }
 
 export interface OptimizerDayResult {
@@ -69,6 +74,7 @@ export interface OptimizerSolveResponse {
   solverStatus: 'OPTIMAL' | 'FEASIBLE';
   objective: string;
   days: OptimizerDayResult[];
+  diagnostics?: Record<string, unknown>;
 }
 
 @Injectable()

@@ -19,8 +19,10 @@ interface TransitPoint {
   pointType: TransitCachePointType;
   city: string;
   province: string | null;
-  latitude: number;
-  longitude: number;
+  originLatitude: number;
+  originLongitude: number;
+  destinationLatitude: number;
+  destinationLongitude: number;
 }
 
 export interface TransitPointRecomputeInput {
@@ -28,8 +30,12 @@ export interface TransitPointRecomputeInput {
   pointType: TransitCachePointType;
   city: string;
   province?: string | null;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
+  entryLatitude?: number;
+  entryLongitude?: number;
+  exitLatitude?: number;
+  exitLongitude?: number;
 }
 
 @Injectable()
@@ -154,8 +160,10 @@ export class TransitCachePrecomputeService {
         .createQueryBuilder('spot')
         .where('spot."isPublished" = true')
         .andWhere('LOWER(spot.city) = LOWER(:city)', { city })
-        .andWhere('spot.latitude IS NOT NULL')
-        .andWhere('spot.longitude IS NOT NULL')
+        .andWhere('spot."entryLatitude" IS NOT NULL')
+        .andWhere('spot."entryLongitude" IS NOT NULL')
+        .andWhere('spot."exitLatitude" IS NOT NULL')
+        .andWhere('spot."exitLongitude" IS NOT NULL')
         .andWhere(
           normalizedProvince
             ? 'LOWER(spot.province) = LOWER(:province)'
@@ -223,8 +231,10 @@ export class TransitCachePrecomputeService {
       pointType: 'spot',
       city: item.city,
       province: item.province,
-      latitude: item.latitude as number,
-      longitude: item.longitude as number,
+      originLatitude: item.exitLatitude as number,
+      originLongitude: item.exitLongitude as number,
+      destinationLatitude: item.entryLatitude as number,
+      destinationLongitude: item.entryLongitude as number,
     }));
 
     const shoppingPoints: TransitPoint[] = shopping.map((item) => ({
@@ -232,8 +242,10 @@ export class TransitCachePrecomputeService {
       pointType: 'shopping',
       city: item.city,
       province: item.province,
-      latitude: item.latitude as number,
-      longitude: item.longitude as number,
+      originLatitude: item.latitude as number,
+      originLongitude: item.longitude as number,
+      destinationLatitude: item.latitude as number,
+      destinationLongitude: item.longitude as number,
     }));
 
     const restaurantPoints: TransitPoint[] = restaurants.map((item) => ({
@@ -241,8 +253,10 @@ export class TransitCachePrecomputeService {
       pointType: 'restaurant',
       city: item.city,
       province: item.province,
-      latitude: item.latitude as number,
-      longitude: item.longitude as number,
+      originLatitude: item.latitude as number,
+      originLongitude: item.longitude as number,
+      destinationLatitude: item.latitude as number,
+      destinationLongitude: item.longitude as number,
     }));
 
     const hotelPoints: TransitPoint[] = hotels.map((item) => ({
@@ -250,8 +264,10 @@ export class TransitCachePrecomputeService {
       pointType: 'hotel',
       city: item.city,
       province: item.province,
-      latitude: item.latitude as number,
-      longitude: item.longitude as number,
+      originLatitude: item.latitude as number,
+      originLongitude: item.longitude as number,
+      destinationLatitude: item.latitude as number,
+      destinationLongitude: item.longitude as number,
     }));
 
     const airportPoints: TransitPoint[] = airports.map((item) => ({
@@ -259,8 +275,10 @@ export class TransitCachePrecomputeService {
       pointType: 'airport',
       city: item.city?.name ?? city,
       province: item.city?.province?.name ?? normalizedProvince,
-      latitude: item.latitude as number,
-      longitude: item.longitude as number,
+      originLatitude: item.latitude as number,
+      originLongitude: item.longitude as number,
+      destinationLatitude: item.latitude as number,
+      destinationLongitude: item.longitude as number,
     }));
 
     return [
@@ -272,10 +290,17 @@ export class TransitCachePrecomputeService {
     ];
   }
 
-  private toCoordinate(point: TransitPoint): AmapCoordinate {
+  private toOriginCoordinate(point: TransitPoint): AmapCoordinate {
     return {
-      latitude: point.latitude,
-      longitude: point.longitude,
+      latitude: point.originLatitude,
+      longitude: point.originLongitude,
+    };
+  }
+
+  private toDestinationCoordinate(point: TransitPoint): AmapCoordinate {
+    return {
+      latitude: point.destinationLatitude,
+      longitude: point.destinationLongitude,
     };
   }
 
@@ -286,10 +311,36 @@ export class TransitCachePrecomputeService {
     if (!city) {
       return null;
     }
-    if (
-      !Number.isFinite(point.latitude) ||
-      !Number.isFinite(point.longitude)
-    ) {
+
+    if (point.pointType === 'spot') {
+      const entryLatitude = Number(point.entryLatitude);
+      const entryLongitude = Number(point.entryLongitude);
+      const exitLatitude = Number(point.exitLatitude);
+      const exitLongitude = Number(point.exitLongitude);
+      if (
+        !Number.isFinite(entryLatitude) ||
+        !Number.isFinite(entryLongitude) ||
+        !Number.isFinite(exitLatitude) ||
+        !Number.isFinite(exitLongitude)
+      ) {
+        return null;
+      }
+
+      return {
+        id: point.id,
+        pointType: point.pointType,
+        city,
+        province: point.province?.trim() || null,
+        originLatitude: exitLatitude,
+        originLongitude: exitLongitude,
+        destinationLatitude: entryLatitude,
+        destinationLongitude: entryLongitude,
+      };
+    }
+
+    const latitude = Number(point.latitude);
+    const longitude = Number(point.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return null;
     }
 
@@ -298,8 +349,10 @@ export class TransitCachePrecomputeService {
       pointType: point.pointType,
       city,
       province: point.province?.trim() || null,
-      latitude: point.latitude,
-      longitude: point.longitude,
+      originLatitude: latitude,
+      originLongitude: longitude,
+      destinationLatitude: latitude,
+      destinationLongitude: longitude,
     };
   }
 
@@ -321,13 +374,13 @@ export class TransitCachePrecomputeService {
 
       const [drivingRows, walkingRows] = await Promise.all([
         this.fetchDistanceMatrixWithRetry({
-          origins: originChunk.map((item) => this.toCoordinate(item)),
-          destination: this.toCoordinate(destination),
+          origins: originChunk.map((item) => this.toOriginCoordinate(item)),
+          destination: this.toDestinationCoordinate(destination),
           mode: 'driving',
         }),
         this.fetchDistanceMatrixWithRetry({
-          origins: originChunk.map((item) => this.toCoordinate(item)),
-          destination: this.toCoordinate(destination),
+          origins: originChunk.map((item) => this.toOriginCoordinate(item)),
+          destination: this.toDestinationCoordinate(destination),
           mode: 'walking',
         }),
       ]);
@@ -337,8 +390,8 @@ export class TransitCachePrecomputeService {
         const driving = drivingRows[idx];
         const walking = walkingRows[idx];
         const fallbackDistanceMeters = this.estimateDistanceMeters(
-          this.toCoordinate(origin),
-          this.toCoordinate(destination),
+          this.toOriginCoordinate(origin),
+          this.toDestinationCoordinate(destination),
         );
         const fallbackDrivingMinutes = this.estimateDrivingMinutes(
           fallbackDistanceMeters,

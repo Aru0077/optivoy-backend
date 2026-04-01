@@ -30,6 +30,10 @@ interface MatrixNode {
   province: string | null;
   latitude: number;
   longitude: number;
+  entryLatitude?: number;
+  entryLongitude?: number;
+  exitLatitude?: number;
+  exitLongitude?: number;
 }
 
 interface MatrixEdgeRow {
@@ -203,7 +207,21 @@ export class MatrixAdminService {
     const pointId = this.normalizeRequired(dto.pointId, 'pointId');
     const point = await this.resolvePointById(pointId);
 
-    if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) {
+    const hasCenterCoordinate =
+      Number.isFinite(point.latitude) && Number.isFinite(point.longitude);
+    const hasSpotEntryExitCoordinate =
+      point.pointType === 'spot' &&
+      Number.isFinite(point.entryLatitude) &&
+      Number.isFinite(point.entryLongitude) &&
+      Number.isFinite(point.exitLatitude) &&
+      Number.isFinite(point.exitLongitude);
+
+    const coordinateInvalid =
+      point.pointType === 'spot'
+        ? !hasSpotEntryExitCoordinate
+        : !hasCenterCoordinate;
+
+    if (coordinateInvalid) {
       throw new BadRequestException({
         code: 'MATRIX_POINT_COORDINATE_REQUIRED',
         message: 'Point coordinates are required for recompute.',
@@ -217,6 +235,10 @@ export class MatrixAdminService {
       province: point.province,
       latitude: point.latitude,
       longitude: point.longitude,
+      entryLatitude: point.entryLatitude,
+      entryLongitude: point.entryLongitude,
+      exitLatitude: point.exitLatitude,
+      exitLongitude: point.exitLongitude,
     });
 
     return {
@@ -461,13 +483,15 @@ export class MatrixAdminService {
           'spot.name AS name',
           'spot.city AS city',
           'spot.province AS province',
-          'spot.latitude AS latitude',
-          'spot.longitude AS longitude',
+          'spot."entryLatitude" AS latitude',
+          'spot."entryLongitude" AS longitude',
         ])
         .where('spot."isPublished" = true')
         .andWhere('LOWER(spot.city) = LOWER(:city)', { city })
-        .andWhere('spot.latitude IS NOT NULL')
-        .andWhere('spot.longitude IS NOT NULL')
+        .andWhere('spot."entryLatitude" IS NOT NULL')
+        .andWhere('spot."entryLongitude" IS NOT NULL')
+        .andWhere('spot."exitLatitude" IS NOT NULL')
+        .andWhere('spot."exitLongitude" IS NOT NULL')
         .andWhere(
           province
             ? 'LOWER(spot.province) = LOWER(:province)'
@@ -659,8 +683,10 @@ export class MatrixAdminService {
         .createQueryBuilder('spot')
         .select(['spot.city AS city', 'spot.province AS province'])
         .where('spot."isPublished" = true')
-        .andWhere('spot.latitude IS NOT NULL')
-        .andWhere('spot.longitude IS NOT NULL')
+        .andWhere('spot."entryLatitude" IS NOT NULL')
+        .andWhere('spot."entryLongitude" IS NOT NULL')
+        .andWhere('spot."exitLatitude" IS NOT NULL')
+        .andWhere('spot."exitLongitude" IS NOT NULL')
         .groupBy('spot.city')
         .addGroupBy('spot.province')
         .getRawMany<MatrixCityRef>(),
@@ -770,8 +796,12 @@ export class MatrixAdminService {
         name: spot.name,
         city: spot.city,
         province: spot.province || null,
-        latitude: spot.latitude as number,
-        longitude: spot.longitude as number,
+        latitude: spot.entryLatitude as number,
+        longitude: spot.entryLongitude as number,
+        entryLatitude: spot.entryLatitude as number,
+        entryLongitude: spot.entryLongitude as number,
+        exitLatitude: spot.exitLatitude as number,
+        exitLongitude: spot.exitLongitude as number,
       };
     }
     if (shopping) {

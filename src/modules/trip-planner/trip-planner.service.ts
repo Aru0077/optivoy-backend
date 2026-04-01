@@ -351,7 +351,13 @@ export class TripPlannerService {
         },
         objective: 'min_days_then_transit',
         maxDays: 14,
-        timeLimitSeconds: this.optimizerClient.getDefaultTimeLimitSeconds(),
+        timeLimitSeconds:
+          dto.timeLimitSeconds ?? this.optimizerClient.getDefaultTimeLimitSeconds(),
+        switchPenaltyMinutes: dto.switchPenaltyMinutes,
+        newHotelPenaltyMinutes: dto.newHotelPenaltyMinutes,
+        maxIterations: dto.maxIterations,
+        badDayTransitMinutesThreshold: dto.badDayTransitMinutesThreshold,
+        badDayPenaltyMinutes: dto.badDayPenaltyMinutes,
       });
     } catch (error) {
       throw new ServiceUnavailableException({
@@ -413,6 +419,7 @@ export class TripPlannerService {
           dateTime: returnFlightDateTime,
         }),
       },
+      optimizerDiagnostics: solverResult.diagnostics,
     };
   }
 
@@ -771,12 +778,20 @@ export class TripPlannerService {
       city: spot.city,
       province: spot.province,
       latitude:
-        typeof spot.latitude === 'number' && Number.isFinite(spot.latitude)
-          ? spot.latitude
+        typeof spot.entryLatitude === 'number' &&
+        Number.isFinite(spot.entryLatitude)
+          ? spot.entryLatitude
+          : typeof spot.exitLatitude === 'number' &&
+              Number.isFinite(spot.exitLatitude)
+            ? spot.exitLatitude
           : null,
       longitude:
-        typeof spot.longitude === 'number' && Number.isFinite(spot.longitude)
-          ? spot.longitude
+        typeof spot.entryLongitude === 'number' &&
+        Number.isFinite(spot.entryLongitude)
+          ? spot.entryLongitude
+          : typeof spot.exitLongitude === 'number' &&
+              Number.isFinite(spot.exitLongitude)
+            ? spot.exitLongitude
           : null,
     };
   }
@@ -1194,12 +1209,20 @@ export class TripPlannerService {
       introI18n,
       suggestedDurationMinutes: spot.suggestedDurationMinutes,
       latitude:
-        typeof spot.latitude === 'number' && Number.isFinite(spot.latitude)
-          ? spot.latitude
+        typeof spot.entryLatitude === 'number' &&
+        Number.isFinite(spot.entryLatitude)
+          ? spot.entryLatitude
+          : typeof spot.exitLatitude === 'number' &&
+              Number.isFinite(spot.exitLatitude)
+            ? spot.exitLatitude
           : null,
       longitude:
-        typeof spot.longitude === 'number' && Number.isFinite(spot.longitude)
-          ? spot.longitude
+        typeof spot.entryLongitude === 'number' &&
+        Number.isFinite(spot.entryLongitude)
+          ? spot.entryLongitude
+          : typeof spot.exitLongitude === 'number' &&
+              Number.isFinite(spot.exitLongitude)
+            ? spot.exitLongitude
           : null,
       coverImageUrl: spot.coverImageUrl,
     };
