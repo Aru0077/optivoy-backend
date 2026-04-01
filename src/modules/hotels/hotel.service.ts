@@ -27,7 +27,6 @@ import {
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
-import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
 @Injectable()
@@ -37,7 +36,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     private readonly hotelRepository: Repository<HotelPlace>,
     private readonly tripPlannerCacheService: TripPlannerCacheService,
     private readonly transitCacheService: TransitCacheService,
-    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
   ) {
     super();
   }
@@ -70,20 +68,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     const saved = await this.hotelRepository.save(item);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(saved.id);
-    if (
-      saved.isPublished &&
-      saved.latitude !== null &&
-      saved.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: saved.id,
-        pointType: 'hotel',
-        city: saved.city,
-        province: saved.province,
-        latitude: saved.latitude,
-        longitude: saved.longitude,
-      });
-    }
     return this.mapHotel(saved, 'zh-CN');
   }
 
@@ -149,20 +133,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     const saved = await this.hotelRepository.save(item);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(saved.id);
-    if (
-      saved.isPublished &&
-      saved.latitude !== null &&
-      saved.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: saved.id,
-        pointType: 'hotel',
-        city: saved.city,
-        province: saved.province,
-        latitude: saved.latitude,
-        longitude: saved.longitude,
-      });
-    }
     return this.mapHotel(saved, 'zh-CN');
   }
 

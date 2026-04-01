@@ -5,6 +5,8 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsNumber,
   IsOptional,
   IsString,
@@ -17,6 +19,26 @@ import {
 import { BasePlaceUpdateDto } from '../../../common/dto/base-place.dto';
 
 export class UpdateSpotDto extends BasePlaceUpdateDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  entryLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  entryLongitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  exitLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  exitLongitude?: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

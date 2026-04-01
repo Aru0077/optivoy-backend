@@ -12,7 +12,6 @@ import { SpotPublicService } from './spot-public.service';
 import { CityGroupItem, SpotView } from './spots.types';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
-import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
 
 @Injectable()
 export class SpotsService {
@@ -25,7 +24,6 @@ export class SpotsService {
     private readonly dataSource: DataSource,
     private readonly tripPlannerCacheService: TripPlannerCacheService,
     private readonly transitCacheService: TransitCacheService,
-    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
   ) {
     this.adminService = new SpotAdminService(this.spotRepository);
     this.publicService = new SpotPublicService(
@@ -38,20 +36,6 @@ export class SpotsService {
     const result = await this.adminService.createSpot(dto);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(result.id);
-    if (
-      result.isPublished &&
-      result.latitude !== null &&
-      result.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: result.id,
-        pointType: 'spot',
-        city: result.city,
-        province: result.province,
-        latitude: result.latitude,
-        longitude: result.longitude,
-      });
-    }
     return result;
   }
 
@@ -59,20 +43,6 @@ export class SpotsService {
     const result = await this.adminService.updateSpot(spotId, dto);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(result.id);
-    if (
-      result.isPublished &&
-      result.latitude !== null &&
-      result.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: result.id,
-        pointType: 'spot',
-        city: result.city,
-        province: result.province,
-        latitude: result.latitude,
-        longitude: result.longitude,
-      });
-    }
     return result;
   }
 

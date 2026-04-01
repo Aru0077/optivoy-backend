@@ -5,6 +5,8 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -18,6 +20,26 @@ import {
 import { BasePlaceCreateDto } from '../../../common/dto/base-place.dto';
 
 export class CreateSpotDto extends BasePlaceCreateDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  entryLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  entryLongitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  exitLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  exitLongitude?: number;
+
   @Type(() => Number)
   @IsInt()
   @Min(30)

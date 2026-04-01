@@ -22,6 +22,7 @@ import { HealthModule } from './modules/health/health.module';
 import { HomeModule } from './modules/home/home.module';
 import { HotelModule } from './modules/hotels/hotel.module';
 import { LocationsModule } from './modules/locations/locations.module';
+import { MatrixAdminModule } from './modules/matrix-admin/matrix-admin.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RestaurantModule } from './modules/restaurants/restaurant.module';
 import { ShoppingModule } from './modules/shopping/shopping.module';
@@ -66,6 +67,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     AdminModule,
     AuthModule,
     HomeModule,
+    MatrixAdminModule,
     LocationsModule,
     NotificationsModule,
     UploadsModule,

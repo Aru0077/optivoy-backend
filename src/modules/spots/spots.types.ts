@@ -9,6 +9,10 @@ export interface SpotRawRow {
   cityI18n: Record<string, string> | null;
   latitude: number | string | null;
   longitude: number | string | null;
+  entryLatitude: number | string | null;
+  entryLongitude: number | string | null;
+  exitLatitude: number | string | null;
+  exitLongitude: number | string | null;
   coverImageUrl: string | null;
   introI18n: Record<string, string | undefined>;
   guideI18n: Record<string, string | undefined> | null;
@@ -36,6 +40,10 @@ export interface SpotView {
   cityI18n: Record<string, string>;
   latitude: number | null;
   longitude: number | null;
+  entryLatitude: number | null;
+  entryLongitude: number | null;
+  exitLatitude: number | null;
+  exitLongitude: number | null;
   coverImageUrl: string | null;
   intro: string;
   introI18n: Record<string, string | undefined>;

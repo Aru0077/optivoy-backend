@@ -48,6 +48,10 @@ export class SpotAdminService extends BasePlaceService<Spot> {
 
     const spot = this.spotRepository.create({
       ...this.buildBaseCreatePayload(dto),
+      entryLatitude: dto.entryLatitude ?? null,
+      entryLongitude: dto.entryLongitude ?? null,
+      exitLatitude: dto.exitLatitude ?? null,
+      exitLongitude: dto.exitLongitude ?? null,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
       reservationRequired: dto.reservationRequired ?? false,
       reservationUrl: dto.reservationUrl?.trim() || null,
@@ -88,6 +92,18 @@ export class SpotAdminService extends BasePlaceService<Spot> {
 
     if (dto.suggestedDurationMinutes !== undefined) {
       spot.suggestedDurationMinutes = dto.suggestedDurationMinutes;
+    }
+    if (dto.entryLatitude !== undefined) {
+      spot.entryLatitude = dto.entryLatitude;
+    }
+    if (dto.entryLongitude !== undefined) {
+      spot.entryLongitude = dto.entryLongitude;
+    }
+    if (dto.exitLatitude !== undefined) {
+      spot.exitLatitude = dto.exitLatitude;
+    }
+    if (dto.exitLongitude !== undefined) {
+      spot.exitLongitude = dto.exitLongitude;
     }
     if (dto.reservationRequired !== undefined) {
       spot.reservationRequired = dto.reservationRequired;

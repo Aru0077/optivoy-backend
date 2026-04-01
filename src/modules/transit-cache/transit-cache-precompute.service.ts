@@ -6,7 +6,11 @@ import { LocationAirport } from '../locations/entities/location-airport.entity';
 import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
-import { AmapCoordinate, AmapTransitClient } from './amap/amap-transit.client';
+import {
+  AmapCoordinate,
+  AmapMatrixItem,
+  AmapTransitClient,
+} from './amap/amap-transit.client';
 import { TransitCachePointType } from './entities/transit-cache.entity';
 import { TransitCacheService } from './transit-cache.service';
 
@@ -31,6 +35,7 @@ export interface TransitPointRecomputeInput {
 @Injectable()
 export class TransitCachePrecomputeService {
   private readonly logger = new Logger(TransitCachePrecomputeService.name);
+  private static readonly MATRIX_REQUEST_RETRIES = 2;
 
   constructor(
     @InjectRepository(Spot)
@@ -85,7 +90,13 @@ export class TransitCachePrecomputeService {
 
     for (const destination of points) {
       const origins = points.filter((item) => item.id !== destination.id);
-      await this.recomputeEdgesToDestination(origins, destination);
+      try {
+        await this.recomputeEdgesToDestination(origins, destination);
+      } catch (error) {
+        this.logger.warn(
+          `Transit precompute destination failed city=${normalizedCity} destination=${destination.id}: ${(error as Error).message}`,
+        );
+      }
     }
   }
 
@@ -309,12 +320,12 @@ export class TransitCachePrecomputeService {
       const originChunk = origins.slice(i, i + maxOrigins);
 
       const [drivingRows, walkingRows] = await Promise.all([
-        this.amapTransitClient.getDistanceMatrixToDestination({
+        this.fetchDistanceMatrixWithRetry({
           origins: originChunk.map((item) => this.toCoordinate(item)),
           destination: this.toCoordinate(destination),
           mode: 'driving',
         }),
-        this.amapTransitClient.getDistanceMatrixToDestination({
+        this.fetchDistanceMatrixWithRetry({
           origins: originChunk.map((item) => this.toCoordinate(item)),
           destination: this.toCoordinate(destination),
           mode: 'walking',
@@ -325,23 +336,29 @@ export class TransitCachePrecomputeService {
         const origin = originChunk[idx];
         const driving = drivingRows[idx];
         const walking = walkingRows[idx];
-        const transitFallbackMinutes =
-          driving?.durationMinutes ?? walking?.durationMinutes ?? null;
-        const walkingMeters = walking?.distanceMeters ?? driving?.distanceMeters ?? null;
-        const distanceMeters = driving?.distanceMeters ?? walking?.distanceMeters ?? null;
+        const fallbackDistanceMeters = this.estimateDistanceMeters(
+          this.toCoordinate(origin),
+          this.toCoordinate(destination),
+        );
+        const fallbackDrivingMinutes = this.estimateDrivingMinutes(
+          fallbackDistanceMeters,
+        );
+        const fallbackWalkingMinutes = this.estimateWalkingMinutes(
+          fallbackDistanceMeters,
+        );
+        const drivingMinutes =
+          driving?.durationMinutes ?? fallbackDrivingMinutes;
+        const walkingMeters = walking?.distanceMeters ?? fallbackDistanceMeters;
+        const distanceMeters =
+          driving?.distanceMeters ??
+          walking?.distanceMeters ??
+          fallbackDistanceMeters;
 
-        if (
-          transitFallbackMinutes === null ||
-          walkingMeters === null ||
-          distanceMeters === null
-        ) {
-          continue;
-        }
-
-        const drivingMinutes = driving?.durationMinutes ?? transitFallbackMinutes;
         const transitMinutesCandidates = [
           driving?.durationMinutes,
           walking?.durationMinutes,
+          fallbackDrivingMinutes,
+          fallbackWalkingMinutes,
         ].filter(
           (item): item is number =>
             typeof item === 'number' && Number.isFinite(item) && item > 0,
@@ -349,7 +366,14 @@ export class TransitCachePrecomputeService {
         const transitMinutes =
           transitMinutesCandidates.length > 0
             ? Math.min(...transitMinutesCandidates)
-            : transitFallbackMinutes;
+            : fallbackDrivingMinutes;
+        const provider =
+          driving?.durationMinutes !== null && driving?.durationMinutes !== undefined
+            ? walking?.durationMinutes !== null &&
+              walking?.durationMinutes !== undefined
+              ? 'amap'
+              : 'amap_partial'
+            : 'amap_fallback';
 
         await this.transitCacheService.upsertEdge({
           city: destination.city,
@@ -364,10 +388,70 @@ export class TransitCachePrecomputeService {
           distanceKm: Number((distanceMeters / 1000).toFixed(3)),
           transitSummary: null,
           transitSummaryI18n: null,
-          provider: 'amap',
+          provider,
           status: 'ready',
         });
       }
     }
+  }
+
+  private async fetchDistanceMatrixWithRetry(input: {
+    origins: AmapCoordinate[];
+    destination: AmapCoordinate;
+    mode: 'driving' | 'walking';
+  }): Promise<AmapMatrixItem[]> {
+    let attempt = 0;
+    while (attempt <= TransitCachePrecomputeService.MATRIX_REQUEST_RETRIES) {
+      try {
+        return await this.amapTransitClient.getDistanceMatrixToDestination(input);
+      } catch (error) {
+        const isLast =
+          attempt === TransitCachePrecomputeService.MATRIX_REQUEST_RETRIES;
+        this.logger.warn(
+          `Amap matrix request error mode=${input.mode} attempt=${attempt + 1}: ${(error as Error).message}`,
+        );
+        if (isLast) {
+          break;
+        }
+        await this.delay((attempt + 1) * 300);
+      }
+      attempt += 1;
+    }
+
+    return input.origins.map(() => ({
+      distanceMeters: null,
+      durationMinutes: null,
+    }));
+  }
+
+  private estimateDistanceMeters(a: AmapCoordinate, b: AmapCoordinate): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const lat1 = toRad(a.latitude);
+    const lng1 = toRad(a.longitude);
+    const lat2 = toRad(b.latitude);
+    const lng2 = toRad(b.longitude);
+    const dLat = lat2 - lat1;
+    const dLng = lng2 - lng1;
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    const meters = 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    return Math.max(1, Math.round(meters));
+  }
+
+  private estimateDrivingMinutes(distanceMeters: number): number {
+    const distanceKm = distanceMeters / 1000;
+    return Math.max(1, Math.round((distanceKm / 25) * 60 + 6));
+  }
+
+  private estimateWalkingMinutes(distanceMeters: number): number {
+    const distanceKm = distanceMeters / 1000;
+    return Math.max(1, Math.round((distanceKm / 4.5) * 60));
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 }

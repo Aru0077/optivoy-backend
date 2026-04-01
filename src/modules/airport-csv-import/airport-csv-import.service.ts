@@ -8,7 +8,6 @@ import {
   LocationProvince,
 } from '../locations/entities/location-province.entity';
 import { LocationRegionRef } from '../locations/entities/location-region-ref.entity';
-import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 import { LocationCsvDatasetType } from './dto/import-airports-csv.dto';
 
@@ -121,7 +120,6 @@ export class AirportCsvImportService {
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
     private readonly transitCacheService: TransitCacheService,
   ) {}
 
@@ -345,7 +343,6 @@ export class AirportCsvImportService {
       });
     }
 
-    const touchedCities = new Map<string, { city: string; province: string }>();
     const importedAirportCodes = [
       ...new Set(parsed.rows.map((row) => row.airportCode)),
     ];
@@ -405,14 +402,6 @@ export class AirportCsvImportService {
             provinceCache,
             cityCache,
           );
-          const cityKey = `${city.name}\u0000${province.name}`.toLowerCase();
-          if (!touchedCities.has(cityKey)) {
-            touchedCities.set(cityKey, {
-              city: city.name,
-              province: province.name,
-            });
-          }
-
           const existingAirport = existingAirportByCode.get(row.airportCode);
           const nextName =
             row.name ||
@@ -467,15 +456,6 @@ export class AirportCsvImportService {
         await airportRepo.delete(staleIds);
         deleted = staleAirports.length;
 
-        for (const item of staleAirports) {
-          const cityKey = `${item.city}\u0000${item.province}`.toLowerCase();
-          if (!touchedCities.has(cityKey)) {
-            touchedCities.set(cityKey, {
-              city: item.city,
-              province: item.province,
-            });
-          }
-        }
       }
 
       return {
@@ -491,13 +471,6 @@ export class AirportCsvImportService {
     if (result.deletedAirportIds.length > 0) {
       await this.transitCacheService.deletePointEdgesByIds(
         result.deletedAirportIds,
-      );
-    }
-
-    for (const item of touchedCities.values()) {
-      this.transitCachePrecomputeService.scheduleRecomputeCity(
-        item.city,
-        item.province,
       );
     }
 

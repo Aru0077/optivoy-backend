@@ -30,7 +30,6 @@ import {
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
-import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
 @Injectable()
@@ -40,7 +39,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     private readonly shoppingRepository: Repository<ShoppingPlace>,
     private readonly tripPlannerCacheService: TripPlannerCacheService,
     private readonly transitCacheService: TransitCacheService,
-    private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
   ) {
     super();
   }
@@ -70,20 +68,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     const saved = await this.shoppingRepository.save(item);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(saved.id);
-    if (
-      saved.isPublished &&
-      saved.latitude !== null &&
-      saved.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: saved.id,
-        pointType: 'shopping',
-        city: saved.city,
-        province: saved.province,
-        latitude: saved.latitude,
-        longitude: saved.longitude,
-      });
-    }
     return this.mapShopping(saved, 'zh-CN');
   }
 
@@ -143,20 +127,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     const saved = await this.shoppingRepository.save(item);
     this.tripPlannerCacheService.invalidateAll();
     await this.transitCacheService.deletePointEdges(saved.id);
-    if (
-      saved.isPublished &&
-      saved.latitude !== null &&
-      saved.longitude !== null
-    ) {
-      this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-        id: saved.id,
-        pointType: 'shopping',
-        city: saved.city,
-        province: saved.province,
-        latitude: saved.latitude,
-        longitude: saved.longitude,
-      });
-    }
     return this.mapShopping(saved, 'zh-CN');
   }
 

@@ -81,6 +81,18 @@ export class Spot {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  entryLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  entryLongitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  exitLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  exitLongitude: number | null;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   coverImageUrl: string | null;
 
