@@ -43,6 +43,24 @@ export class LocationAirport {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  arrivalBufferMinutes: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  departureBufferMinutes: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLongitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLongitude: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

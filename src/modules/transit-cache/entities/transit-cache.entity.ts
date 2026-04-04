@@ -17,6 +17,7 @@ export type TransitCachePointType =
   | 'airport';
 
 export type TransitCacheStatus = 'ready' | 'stale' | 'failed';
+export type TransitProviderStatus = 'ready' | 'fallback' | 'failed';
 
 @Entity('transit_cache')
 @Unique('UQ_transit_cache_city_from_to', ['city', 'fromPointId', 'toPointId'])
@@ -56,11 +57,17 @@ export class TransitCache {
   @Column({ type: 'int' })
   walkingMeters: number;
 
+  @Column({ type: 'int' })
+  walkingMinutes: number;
+
   @Column({ type: 'text', nullable: true })
   transitSummary: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   transitSummaryI18n: Record<string, string> | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  transitProviderStatus: TransitProviderStatus | null;
 
   @Column({ type: 'double precision' })
   distanceKm: number;

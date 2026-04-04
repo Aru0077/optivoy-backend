@@ -255,6 +255,26 @@ export const validationSchema = Joi.object({
     .min(1)
     .max(50)
     .default(25),
+  AMAP_TRANSIT_DIRECTION_CONCURRENCY: Joi.number()
+    .integer()
+    .min(1)
+    .max(5)
+    .default(1),
+  AMAP_TRANSIT_REQUEST_MIN_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(5000)
+    .default(220),
+  AMAP_TRANSIT_QPS_RETRY_COUNT: Joi.number()
+    .integer()
+    .min(0)
+    .max(10)
+    .default(3),
+  AMAP_TRANSIT_QPS_BACKOFF_MS: Joi.number()
+    .integer()
+    .min(100)
+    .max(10000)
+    .default(1500),
 
   // Optimizer
   OPTIMIZER_BASE_URL: Joi.string()

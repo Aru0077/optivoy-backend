@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OptimizerConfig } from '../../config/optimizer.config';
+import type {
+  BookingStatus,
+  MealTimeWindow,
+  OpeningHoursRule,
+  QueueProfile,
+} from '../../common/utils/planning-metadata.util';
 
 export type OptimizerPointType = 'spot' | 'shopping' | 'restaurant';
 
@@ -10,12 +16,27 @@ export interface OptimizerPointInput {
   suggestedDurationMinutes: number;
   latitude: number | null;
   longitude: number | null;
+  arrivalAnchor?: OptimizerCoordinateInput;
+  departureAnchor?: OptimizerCoordinateInput;
+  openingHoursJson?: OpeningHoursRule[];
+  specialClosureDates?: string[];
+  lastEntryTime?: string | null;
+  hasFoodCourt?: boolean;
+  queueProfileJson?: QueueProfile | null;
+  mealSlots?: string[];
+  mealTimeWindowsJson?: MealTimeWindow[];
 }
 
 export interface OptimizerHotelInput {
   id: string;
   latitude: number | null;
   longitude: number | null;
+  arrivalAnchor?: OptimizerCoordinateInput;
+  departureAnchor?: OptimizerCoordinateInput;
+  foreignerFriendly?: boolean;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  bookingStatus?: BookingStatus | null;
 }
 
 export interface OptimizerCoordinateInput {
@@ -29,6 +50,7 @@ export interface OptimizerDistanceMatrixRow {
   transitMinutes: number;
   drivingMinutes: number;
   walkingMeters: number;
+  walkingMinutes?: number | null;
   distanceKm: number;
   transitSummary?: string | null;
 }
@@ -42,6 +64,8 @@ export interface OptimizerSolveRequest {
   departureAirportId?: string;
   arrivalAirport?: OptimizerCoordinateInput;
   departureAirport?: OptimizerCoordinateInput;
+  arrivalAirportBufferMinutes?: number;
+  departureAirportBufferMinutes?: number;
   arrivalDateTime: string;
   airportBufferMinutes: number;
   paceMode: 'light' | 'standard' | 'compact';
@@ -52,14 +76,9 @@ export interface OptimizerSolveRequest {
   distanceMatrix: {
     rows: OptimizerDistanceMatrixRow[];
   };
-  objective: 'min_days' | 'min_transit' | 'min_days_then_transit';
   maxDays: number;
-  timeLimitSeconds: number;
-  switchPenaltyMinutes?: number;
-  newHotelPenaltyMinutes?: number;
-  maxIterations?: number;
-  badDayTransitMinutesThreshold?: number;
-  badDayPenaltyMinutes?: number;
+  transportPreference?: 'transit_first' | 'driving_first' | 'mixed';
+  maxIntradayDrivingMinutes?: number;
 }
 
 export interface OptimizerDayResult {
@@ -75,6 +94,18 @@ export interface OptimizerSolveResponse {
   objective: string;
   days: OptimizerDayResult[];
   diagnostics?: Record<string, unknown>;
+}
+
+export class OptimizerRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly bodyText: string,
+    public readonly responseBody?: unknown,
+  ) {
+    super(
+      `Optimizer request failed: HTTP ${status} ${bodyText.slice(0, 200)}`,
+    );
+  }
 }
 
 @Injectable()
@@ -117,9 +148,13 @@ export class OptimizerClient {
 
       const text = await response.text();
       if (!response.ok) {
-        throw new Error(
-          `Optimizer request failed: HTTP ${response.status} ${text.slice(0, 200)}`,
-        );
+        let parsedBody: unknown;
+        try {
+          parsedBody = JSON.parse(text);
+        } catch {
+          parsedBody = undefined;
+        }
+        throw new OptimizerRequestError(response.status, text, parsedBody);
       }
 
       return JSON.parse(text) as OptimizerSolveResponse;

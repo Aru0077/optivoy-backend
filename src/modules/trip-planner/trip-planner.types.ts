@@ -1,4 +1,10 @@
 import { ContentLang } from '../../common/utils/content-i18n.util';
+import type {
+  BookingStatus,
+  MealTimeWindow,
+  OpeningHoursRule,
+  QueueProfile,
+} from '../../common/utils/planning-metadata.util';
 
 export interface TripCityItem {
   province: string;
@@ -21,6 +27,17 @@ export interface PlannerPointView {
   introI18n: Record<string, string | undefined>;
   suggestedDurationMinutes: number;
   mealSlots?: string[];
+  openingHoursJson?: OpeningHoursRule[];
+  specialClosureDates?: string[];
+  lastEntryTime?: string | null;
+  reservationRequired?: boolean;
+  queueProfileJson?: QueueProfile | null;
+  hasFoodCourt?: boolean;
+  mealTimeWindowsJson?: MealTimeWindow[];
+  arrivalAnchorLatitude?: number | null;
+  arrivalAnchorLongitude?: number | null;
+  departureAnchorLatitude?: number | null;
+  departureAnchorLongitude?: number | null;
   latitude: number | null;
   longitude: number | null;
   coverImageUrl: string | null;
@@ -34,9 +51,14 @@ export interface PlannerHotelCandidate {
   city: string;
   starLevel: number | null;
   foreignerFriendly: boolean;
+  arrivalAnchorLatitude: number | null;
+  arrivalAnchorLongitude: number | null;
+  departureAnchorLatitude: number | null;
+  departureAnchorLongitude: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
   bookingUrl: string | null;
+  bookingStatus: BookingStatus | null;
   pricePerNightMinCny: number | null;
   pricePerNightMaxCny: number | null;
   latitude: number | null;
@@ -60,6 +82,8 @@ export interface GeneratedTripPoint {
   name: string;
   suggestedDurationMinutes: number;
   guideI18n: Record<string, string | undefined>;
+  mealSlots?: string[];
+  coverImageUrl?: string | null;
 }
 
 export interface GeneratedTripDay {

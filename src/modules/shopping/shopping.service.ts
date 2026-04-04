@@ -29,6 +29,11 @@ import {
   BasePlaceService,
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
+import {
+  ensureCoordinatePair,
+  normalizeOpeningHours,
+  normalizeSpecialDates,
+} from '../../common/utils/planning-metadata.util';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
@@ -55,11 +60,18 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
           'avgSpendMaxCny must be greater than or equal to avgSpendMinCny.',
       });
     }
+    const planningMetadata = this.normalizePlanningMetadata(dto);
 
     const item = this.shoppingRepository.create({
       ...this.buildBaseCreatePayload(dto),
-      openingHours: dto.openingHours?.trim() || null,
+      arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
+      departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
+      departureAnchorLongitude: planningMetadata.departureAnchorLongitude,
+      openingHoursJson: planningMetadata.openingHoursJson,
+      specialClosureDates: planningMetadata.specialClosureDates,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
+      hasFoodCourt: dto.hasFoodCourt ?? false,
       avgSpendMinCny: dto.avgSpendMinCny ?? null,
       avgSpendMaxCny: dto.avgSpendMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
@@ -84,12 +96,31 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     }
 
     this.applyBaseUpdates(item, dto as BasePlaceUpdatePayload);
+    const planningMetadata = this.normalizePlanningMetadata(dto, item);
 
-    if (dto.openingHours !== undefined) {
-      item.openingHours = dto.openingHours?.trim() || null;
+    if (dto.arrivalAnchorLatitude !== undefined) {
+      item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
+    }
+    if (dto.arrivalAnchorLongitude !== undefined) {
+      item.arrivalAnchorLongitude = planningMetadata.arrivalAnchorLongitude;
+    }
+    if (dto.departureAnchorLatitude !== undefined) {
+      item.departureAnchorLatitude = planningMetadata.departureAnchorLatitude;
+    }
+    if (dto.departureAnchorLongitude !== undefined) {
+      item.departureAnchorLongitude = planningMetadata.departureAnchorLongitude;
+    }
+    if (dto.openingHoursJson !== undefined) {
+      item.openingHoursJson = planningMetadata.openingHoursJson;
+    }
+    if (dto.specialClosureDates !== undefined) {
+      item.specialClosureDates = planningMetadata.specialClosureDates;
     }
     if (dto.suggestedDurationMinutes !== undefined) {
       item.suggestedDurationMinutes = dto.suggestedDurationMinutes;
+    }
+    if (dto.hasFoodCourt !== undefined) {
+      item.hasFoodCourt = dto.hasFoodCourt;
     }
 
     const nextAvgSpendMinCny =
@@ -262,13 +293,84 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
       guideI18n,
       notice: resolveNotice(noticeI18n, lang),
       noticeI18n,
-      openingHours: item.openingHours?.trim() || null,
+      openingHoursJson: normalizeOpeningHours(item.openingHoursJson),
+      specialClosureDates: normalizeSpecialDates(item.specialClosureDates),
+      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
+      departureAnchorLatitude: item.departureAnchorLatitude,
+      departureAnchorLongitude: item.departureAnchorLongitude,
       suggestedDurationMinutes: item.suggestedDurationMinutes ?? 240,
+      hasFoodCourt: item.hasFoodCourt === true,
       avgSpendMinCny: item.avgSpendMinCny,
       avgSpendMaxCny: item.avgSpendMaxCny,
       isPublished: item.isPublished,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };
+  }
+
+  private normalizePlanningMetadata(
+    dto: Pick<
+      CreateShoppingDto | UpdateShoppingDto,
+      | 'arrivalAnchorLatitude'
+      | 'arrivalAnchorLongitude'
+      | 'departureAnchorLatitude'
+      | 'departureAnchorLongitude'
+      | 'openingHoursJson'
+      | 'specialClosureDates'
+    >,
+    current?: ShoppingPlace,
+  ) {
+    try {
+      const arrivalAnchorLatitude =
+        dto.arrivalAnchorLatitude !== undefined
+          ? dto.arrivalAnchorLatitude ?? null
+          : current?.arrivalAnchorLatitude ?? null;
+      const arrivalAnchorLongitude =
+        dto.arrivalAnchorLongitude !== undefined
+          ? dto.arrivalAnchorLongitude ?? null
+          : current?.arrivalAnchorLongitude ?? null;
+      const departureAnchorLatitude =
+        dto.departureAnchorLatitude !== undefined
+          ? dto.departureAnchorLatitude ?? null
+          : current?.departureAnchorLatitude ?? null;
+      const departureAnchorLongitude =
+        dto.departureAnchorLongitude !== undefined
+          ? dto.departureAnchorLongitude ?? null
+          : current?.departureAnchorLongitude ?? null;
+      ensureCoordinatePair(
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        'arrivalAnchor',
+      );
+      ensureCoordinatePair(
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        'departureAnchor',
+      );
+
+      return {
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        openingHoursJson:
+          dto.openingHoursJson !== undefined
+            ? normalizeOpeningHours(dto.openingHoursJson)
+            : current?.openingHoursJson ?? null,
+        specialClosureDates:
+          dto.specialClosureDates !== undefined
+            ? normalizeSpecialDates(dto.specialClosureDates)
+            : current?.specialClosureDates ?? null,
+      };
+    } catch (error) {
+      throw new BadRequestException({
+        code: 'SHOPPING_PLANNING_METADATA_INVALID',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Shopping planning metadata is invalid.',
+      });
+    }
   }
 }

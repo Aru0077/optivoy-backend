@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
+import type { OpeningHoursRule } from '../../../common/utils/planning-metadata.util';
 
 export interface ShoppingIntroI18n {
   'zh-CN'?: string;
@@ -74,6 +75,18 @@ export class ShoppingPlace {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLongitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLongitude: number | null;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   coverImageUrl: string | null;
 
@@ -86,11 +99,17 @@ export class ShoppingPlace {
   @Column({ type: 'jsonb', nullable: true })
   noticeI18n: ShoppingNoticeI18n | null;
 
-  @Column({ type: 'varchar', length: 120, nullable: true })
-  openingHours: string | null;
+  @Column({ type: 'jsonb', nullable: true })
+  openingHoursJson: OpeningHoursRule[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  specialClosureDates: string[] | null;
 
   @Column({ type: 'int', default: 240 })
   suggestedDurationMinutes: number;
+
+  @Column({ type: 'boolean', default: false })
+  hasFoodCourt: boolean;
 
   @Column({
     type: 'decimal',

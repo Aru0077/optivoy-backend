@@ -6,6 +6,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
+import type {
+  MealTimeWindow,
+  QueueProfile,
+} from '../../../common/utils/planning-metadata.util';
 
 export type RestaurantMealSlot =
   | 'breakfast'
@@ -80,6 +84,18 @@ export class RestaurantPlace {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLongitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLongitude: number | null;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   coverImageUrl: string | null;
 
@@ -92,17 +108,14 @@ export class RestaurantPlace {
   @Column({ type: 'jsonb', nullable: true })
   noticeI18n: RestaurantNoticeI18n | null;
 
-  @Column({ type: 'varchar', length: 120, nullable: true })
-  openingHours: string | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  closedWeekdays: number[] | null;
-
   @Column({ type: 'int', default: 90 })
   suggestedDurationMinutes: number;
 
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   mealSlots: RestaurantMealSlot[];
+
+  @Column({ type: 'jsonb', nullable: true })
+  mealTimeWindowsJson: MealTimeWindow[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
   cuisineTags: string[] | null;
@@ -112,6 +125,9 @@ export class RestaurantPlace {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   reservationUrl: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  queueProfileJson: QueueProfile | null;
 
   @Column({
     type: 'decimal',

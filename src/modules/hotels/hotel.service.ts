@@ -26,6 +26,11 @@ import {
   BasePlaceService,
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
+import {
+  ensureCoordinatePair,
+  normalizeBookableDates,
+  normalizeBookingStatus,
+} from '../../common/utils/planning-metadata.util';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
@@ -52,14 +57,21 @@ export class HotelService extends BasePlaceService<HotelPlace> {
           'pricePerNightMaxCny must be greater than or equal to pricePerNightMinCny.',
       });
     }
+    const planningMetadata = this.normalizePlanningMetadata(dto);
 
     const item = this.hotelRepository.create({
       ...this.buildBaseCreatePayload(dto),
       starLevel: dto.starLevel ?? null,
       foreignerFriendly: dto.foreignerFriendly ?? true,
+      arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
+      departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
+      departureAnchorLongitude: planningMetadata.departureAnchorLongitude,
       checkInTime: dto.checkInTime?.trim() || null,
       checkOutTime: dto.checkOutTime?.trim() || null,
       bookingUrl: dto.bookingUrl?.trim() || null,
+      bookingStatus: planningMetadata.bookingStatus,
+      bookableDatesJson: planningMetadata.bookableDatesJson,
       pricePerNightMinCny: dto.pricePerNightMinCny ?? null,
       pricePerNightMaxCny: dto.pricePerNightMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
@@ -81,12 +93,25 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     }
 
     this.applyBaseUpdates(item, dto as BasePlaceUpdatePayload);
+    const planningMetadata = this.normalizePlanningMetadata(dto, item);
 
     if (dto.starLevel !== undefined) {
       item.starLevel = dto.starLevel;
     }
     if (dto.foreignerFriendly !== undefined) {
       item.foreignerFriendly = dto.foreignerFriendly;
+    }
+    if (dto.arrivalAnchorLatitude !== undefined) {
+      item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
+    }
+    if (dto.arrivalAnchorLongitude !== undefined) {
+      item.arrivalAnchorLongitude = planningMetadata.arrivalAnchorLongitude;
+    }
+    if (dto.departureAnchorLatitude !== undefined) {
+      item.departureAnchorLatitude = planningMetadata.departureAnchorLatitude;
+    }
+    if (dto.departureAnchorLongitude !== undefined) {
+      item.departureAnchorLongitude = planningMetadata.departureAnchorLongitude;
     }
     if (dto.checkInTime !== undefined) {
       item.checkInTime = dto.checkInTime?.trim() || null;
@@ -96,6 +121,12 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     }
     if (dto.bookingUrl !== undefined) {
       item.bookingUrl = dto.bookingUrl?.trim() || null;
+    }
+    if (dto.bookingStatus !== undefined) {
+      item.bookingStatus = planningMetadata.bookingStatus;
+    }
+    if (dto.bookableDatesJson !== undefined) {
+      item.bookableDatesJson = planningMetadata.bookableDatesJson;
     }
 
     const nextPricePerNightMinCny =
@@ -268,14 +299,86 @@ export class HotelService extends BasePlaceService<HotelPlace> {
           ? item.starLevel
           : null,
       foreignerFriendly: item.foreignerFriendly !== false,
+      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
+      departureAnchorLatitude: item.departureAnchorLatitude,
+      departureAnchorLongitude: item.departureAnchorLongitude,
       checkInTime: item.checkInTime?.trim() || null,
       checkOutTime: item.checkOutTime?.trim() || null,
       bookingUrl: item.bookingUrl?.trim() || null,
+      bookingStatus: normalizeBookingStatus(item.bookingStatus),
+      bookableDatesJson: normalizeBookableDates(item.bookableDatesJson),
       pricePerNightMinCny: item.pricePerNightMinCny,
       pricePerNightMaxCny: item.pricePerNightMaxCny,
       isPublished: item.isPublished,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };
+  }
+
+  private normalizePlanningMetadata(
+    dto: Pick<
+      CreateHotelDto | UpdateHotelDto,
+      | 'arrivalAnchorLatitude'
+      | 'arrivalAnchorLongitude'
+      | 'departureAnchorLatitude'
+      | 'departureAnchorLongitude'
+      | 'bookingStatus'
+      | 'bookableDatesJson'
+    >,
+    current?: HotelPlace,
+  ) {
+    try {
+      const arrivalAnchorLatitude =
+        dto.arrivalAnchorLatitude !== undefined
+          ? dto.arrivalAnchorLatitude ?? null
+          : current?.arrivalAnchorLatitude ?? null;
+      const arrivalAnchorLongitude =
+        dto.arrivalAnchorLongitude !== undefined
+          ? dto.arrivalAnchorLongitude ?? null
+          : current?.arrivalAnchorLongitude ?? null;
+      const departureAnchorLatitude =
+        dto.departureAnchorLatitude !== undefined
+          ? dto.departureAnchorLatitude ?? null
+          : current?.departureAnchorLatitude ?? null;
+      const departureAnchorLongitude =
+        dto.departureAnchorLongitude !== undefined
+          ? dto.departureAnchorLongitude ?? null
+          : current?.departureAnchorLongitude ?? null;
+
+      ensureCoordinatePair(
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        'arrivalAnchor',
+      );
+      ensureCoordinatePair(
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        'departureAnchor',
+      );
+
+      return {
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        bookingStatus:
+          dto.bookingStatus !== undefined
+            ? normalizeBookingStatus(dto.bookingStatus)
+            : current?.bookingStatus ?? null,
+        bookableDatesJson:
+          dto.bookableDatesJson !== undefined
+            ? normalizeBookableDates(dto.bookableDatesJson)
+            : current?.bookableDatesJson ?? null,
+      };
+    } catch (error) {
+      throw new BadRequestException({
+        code: 'HOTEL_PLANNING_METADATA_INVALID',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Hotel planning metadata is invalid.',
+      });
+    }
   }
 }

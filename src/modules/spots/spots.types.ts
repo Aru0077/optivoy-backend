@@ -1,3 +1,8 @@
+import type {
+  OpeningHoursRule,
+  QueueProfile,
+} from '../../common/utils/planning-metadata.util';
+
 export interface SpotRawRow {
   id: string;
   name: string;
@@ -17,11 +22,15 @@ export interface SpotRawRow {
   introI18n: Record<string, string | undefined>;
   guideI18n: Record<string, string | undefined> | null;
   noticeI18n: Record<string, string | undefined> | null;
+  openingHoursJson?: OpeningHoursRule[] | null;
+  specialClosureDates?: string[] | null;
+  lastEntryTime?: string | null;
   suggestedDurationMinutes: number;
   reservationRequired: boolean;
   reservationUrl: string | null;
   reservationNoteI18n: Record<string, string | undefined> | null;
-  closedWeekdays: number[] | null;
+  queueProfileJson?: QueueProfile | null;
+  hasFoodCourt: boolean;
   ticketPriceMinCny: number | string | null;
   ticketPriceMaxCny: number | string | null;
   isPublished: boolean;
@@ -51,12 +60,16 @@ export interface SpotView {
   guideI18n: Record<string, string | undefined>;
   notice: string;
   noticeI18n: Record<string, string | undefined>;
+  openingHoursJson: OpeningHoursRule[];
+  specialClosureDates: string[];
+  lastEntryTime: string | null;
   suggestedDurationMinutes: number;
   reservationRequired: boolean;
   reservationUrl: string | null;
   reservationNote: string;
   reservationNoteI18n: Record<string, string | undefined>;
-  closedWeekdays: number[];
+  queueProfileJson: QueueProfile | null;
+  hasFoodCourt: boolean;
   ticketPriceMinCny: number | null;
   ticketPriceMaxCny: number | null;
   isPublished: boolean;

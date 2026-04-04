@@ -5,12 +5,18 @@ import {
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
 import { ensureReservationNoteI18n } from '../../common/utils/content-i18n.util';
+import {
+  compareHm,
+  latestClosingTime,
+  normalizeOpeningHours,
+  normalizeQueueProfile,
+  normalizeSpecialDates,
+} from '../../common/utils/planning-metadata.util';
 import { CreateSpotDto } from './dto/create-spot.dto';
 import { ListAdminSpotsQueryDto } from './dto/list-admin-spots-query.dto';
 import { UpdateSpotDto } from './dto/update-spot.dto';
 import { Spot } from './entities/spot.entity';
 import { mapSpot } from './spots.mapper';
-import { normalizeWeekdays } from './spots.shared';
 import { SpotView } from './spots.types';
 
 export class SpotAdminService extends BasePlaceService<Spot> {
@@ -45,6 +51,7 @@ export class SpotAdminService extends BasePlaceService<Spot> {
     const hasReservationNote = Object.values(reservationNoteI18n).some(
       (value) => value.length > 0,
     );
+    const planningMetadata = this.normalizePlanningMetadata(dto);
 
     const spot = this.spotRepository.create({
       ...this.buildBaseCreatePayload(dto),
@@ -53,10 +60,14 @@ export class SpotAdminService extends BasePlaceService<Spot> {
       exitLatitude: dto.exitLatitude ?? null,
       exitLongitude: dto.exitLongitude ?? null,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
+      openingHoursJson: planningMetadata.openingHoursJson,
+      specialClosureDates: planningMetadata.specialClosureDates,
+      lastEntryTime: planningMetadata.lastEntryTime,
       reservationRequired: dto.reservationRequired ?? false,
       reservationUrl: dto.reservationUrl?.trim() || null,
       reservationNoteI18n: hasReservationNote ? reservationNoteI18n : null,
-      closedWeekdays: normalizeWeekdays(dto.closedWeekdays),
+      queueProfileJson: planningMetadata.queueProfileJson,
+      hasFoodCourt: dto.hasFoodCourt ?? false,
       ticketPriceMinCny: dto.ticketPriceMinCny ?? null,
       ticketPriceMaxCny: dto.ticketPriceMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
@@ -89,6 +100,7 @@ export class SpotAdminService extends BasePlaceService<Spot> {
         message: 'reservationUrl is required when reservationRequired is true.',
       });
     }
+    const planningMetadata = this.normalizePlanningMetadata(dto, spot);
 
     if (dto.suggestedDurationMinutes !== undefined) {
       spot.suggestedDurationMinutes = dto.suggestedDurationMinutes;
@@ -110,6 +122,15 @@ export class SpotAdminService extends BasePlaceService<Spot> {
     }
     if (dto.reservationUrl !== undefined) {
       spot.reservationUrl = dto.reservationUrl?.trim() || null;
+    }
+    if (dto.openingHoursJson !== undefined) {
+      spot.openingHoursJson = planningMetadata.openingHoursJson;
+    }
+    if (dto.specialClosureDates !== undefined) {
+      spot.specialClosureDates = planningMetadata.specialClosureDates;
+    }
+    if (dto.lastEntryTime !== undefined) {
+      spot.lastEntryTime = planningMetadata.lastEntryTime;
     }
 
     if (
@@ -137,8 +158,11 @@ export class SpotAdminService extends BasePlaceService<Spot> {
         : null;
     }
 
-    if (dto.closedWeekdays !== undefined) {
-      spot.closedWeekdays = normalizeWeekdays(dto.closedWeekdays);
+    if (dto.queueProfileJson !== undefined) {
+      spot.queueProfileJson = planningMetadata.queueProfileJson;
+    }
+    if (dto.hasFoodCourt !== undefined) {
+      spot.hasFoodCourt = dto.hasFoodCourt;
     }
 
     const nextTicketPriceMinCny =
@@ -171,6 +195,58 @@ export class SpotAdminService extends BasePlaceService<Spot> {
 
     const saved = await this.spotRepository.save(spot);
     return mapSpot(saved, 'zh-CN');
+  }
+
+  private normalizePlanningMetadata(
+    dto: Pick<
+      CreateSpotDto | UpdateSpotDto,
+      | 'openingHoursJson'
+      | 'specialClosureDates'
+      | 'lastEntryTime'
+      | 'queueProfileJson'
+    >,
+    current?: Spot,
+  ) {
+    try {
+      const openingHoursJson =
+        dto.openingHoursJson !== undefined
+          ? normalizeOpeningHours(dto.openingHoursJson)
+          : current?.openingHoursJson ?? null;
+      const specialClosureDates =
+        dto.specialClosureDates !== undefined
+          ? normalizeSpecialDates(dto.specialClosureDates)
+          : current?.specialClosureDates ?? null;
+      const lastEntryTime =
+        dto.lastEntryTime !== undefined
+          ? dto.lastEntryTime?.trim() || null
+          : current?.lastEntryTime ?? null;
+      const queueProfileJson =
+        dto.queueProfileJson !== undefined
+          ? normalizeQueueProfile(dto.queueProfileJson)
+          : current?.queueProfileJson ?? null;
+
+      if (lastEntryTime) {
+        const latestClose = latestClosingTime(openingHoursJson ?? []);
+        if (latestClose && compareHm(lastEntryTime, latestClose) > 0) {
+          throw new Error('lastEntryTime must not be later than the latest closing time in openingHoursJson.');
+        }
+      }
+
+      return {
+        openingHoursJson,
+        specialClosureDates,
+        lastEntryTime,
+        queueProfileJson,
+      };
+    } catch (error) {
+      throw new BadRequestException({
+        code: 'SPOT_PLANNING_METADATA_INVALID',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Spot planning metadata is invalid.',
+      });
+    }
   }
 
   async deleteSpot(spotId: string): Promise<void> {

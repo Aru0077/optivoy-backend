@@ -34,6 +34,9 @@
       "items": {
         "$ref": "#/$defs/day"
       }
+    },
+    "diagnostics": {
+      "type": "object"
     }
   },
   "$defs": {

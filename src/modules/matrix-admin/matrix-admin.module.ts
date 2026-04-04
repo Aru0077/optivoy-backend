@@ -10,6 +10,7 @@ import { TransitCache } from '../transit-cache/entities/transit-cache.entity';
 import { TransitCacheModule } from '../transit-cache/transit-cache.module';
 import { UsersModule } from '../users/users.module';
 import { AdminMatrixController } from './admin-matrix.controller';
+import { MatrixRecomputeJob } from './entities/matrix-recompute-job.entity';
 import { MatrixAdminService } from './matrix-admin.service';
 
 @Module({
@@ -21,6 +22,7 @@ import { MatrixAdminService } from './matrix-admin.service';
       HotelPlace,
       LocationAirport,
       TransitCache,
+      MatrixRecomputeJob,
     ]),
     UsersModule,
     TransitCacheModule,

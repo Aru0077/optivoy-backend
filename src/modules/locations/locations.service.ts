@@ -47,6 +47,12 @@ export interface LocationAirportView {
   nameI18n: Record<string, string>;
   latitude: number | null;
   longitude: number | null;
+  arrivalBufferMinutes: number | null;
+  departureBufferMinutes: number | null;
+  arrivalAnchorLatitude: number | null;
+  arrivalAnchorLongitude: number | null;
+  departureAnchorLatitude: number | null;
+  departureAnchorLongitude: number | null;
   country: string;
   province: string;
   provinceI18n: Record<string, string>;
@@ -316,6 +322,12 @@ export class LocationsService {
       nameI18n: this.ensureI18n(airport.nameI18n, airport.name),
       latitude: airport.latitude ?? null,
       longitude: airport.longitude ?? null,
+      arrivalBufferMinutes: airport.arrivalBufferMinutes ?? null,
+      departureBufferMinutes: airport.departureBufferMinutes ?? null,
+      arrivalAnchorLatitude: airport.arrivalAnchorLatitude ?? null,
+      arrivalAnchorLongitude: airport.arrivalAnchorLongitude ?? null,
+      departureAnchorLatitude: airport.departureAnchorLatitude ?? null,
+      departureAnchorLongitude: airport.departureAnchorLongitude ?? null,
       country: airport.city.province.country,
       province: provinceName,
       provinceI18n: this.ensureI18n(

@@ -13,9 +13,7 @@
     "points",
     "hotels",
     "distanceMatrix",
-    "objective",
-    "maxDays",
-    "timeLimitSeconds"
+    "maxDays"
   ],
   "properties": {
     "city": {
@@ -54,6 +52,16 @@
     },
     "departureAirport": {
       "$ref": "#/$defs/coordinate"
+    },
+    "arrivalAirportBufferMinutes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 480
+    },
+    "departureAirportBufferMinutes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 480
     },
     "arrivalDateTime": {
       "type": "string",
@@ -118,23 +126,23 @@
         }
       }
     },
-    "objective": {
-      "type": "string",
-      "enum": [
-        "min_days",
-        "min_transit",
-        "min_days_then_transit"
-      ]
-    },
     "maxDays": {
       "type": "integer",
       "minimum": 1,
       "maximum": 14
     },
-    "timeLimitSeconds": {
-      "type": "number",
-      "minimum": 0.2,
-      "maximum": 30
+    "transportPreference": {
+      "type": "string",
+      "enum": [
+        "transit_first",
+        "driving_first",
+        "mixed"
+      ]
+    },
+    "maxIntradayDrivingMinutes": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 480
     }
   },
   "$defs": {
@@ -159,6 +167,143 @@
           "maximum": 180
         }
       }
+    },
+    "weekday": {
+      "type": "string",
+      "enum": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ]
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        }
+      }
+    },
+    "openingHoursRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weekday",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "weekday": {
+          "$ref": "#/$defs/weekday"
+        },
+        "start": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        }
+      }
+    },
+    "queueProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "weekdayMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440
+        },
+        "weekendMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440
+        },
+        "holidayMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440
+        }
+      }
+    },
+    "bestVisitWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end",
+        "tag"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        }
+      }
+    },
+    "mealSlot": {
+      "type": "string",
+      "enum": [
+        "breakfast",
+        "lunch",
+        "dinner",
+        "night_snack"
+      ]
+    },
+    "mealTimeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/mealSlot"
+        },
+        "start": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        }
+      }
+    },
+    "bookingStatus": {
+      "type": "string",
+      "enum": [
+        "available",
+        "limited",
+        "sold_out",
+        "unknown"
+      ]
     },
     "point": {
       "type": "object",
@@ -202,6 +347,57 @@
           ],
           "minimum": -180,
           "maximum": 180
+        },
+        "arrivalAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "departureAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "openingHoursJson": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/openingHoursRule"
+          }
+        },
+        "specialClosureDates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "lastEntryTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "hasFoodCourt": {
+          "type": "boolean"
+        },
+        "queueProfileJson": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/queueProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mealSlots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mealSlot"
+          }
+        },
+        "mealTimeWindowsJson": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mealTimeWindow"
+          }
         }
       }
     },
@@ -232,6 +428,39 @@
           ],
           "minimum": -180,
           "maximum": 180
+        },
+        "arrivalAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "departureAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "foreignerFriendly": {
+          "type": "boolean"
+        },
+        "checkInTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "checkOutTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "bookingStatus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/bookingStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -271,6 +500,14 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 200000
+        },
+        "walkingMinutes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2880
         },
         "distanceKm": {
           "type": "number",

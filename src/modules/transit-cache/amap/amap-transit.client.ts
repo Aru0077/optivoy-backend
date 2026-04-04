@@ -79,6 +79,8 @@ interface AmapTransitDirectionResponse {
 export class AmapTransitClient {
   private readonly logger = new Logger(AmapTransitClient.name);
   private readonly config: AmapConfig;
+  private transitQueue: Promise<void> = Promise.resolve();
+  private lastTransitRequestAt = 0;
 
   constructor(private readonly configService: ConfigService) {
     this.config = this.configService.get<AmapConfig>('amap') as AmapConfig;
@@ -90,6 +92,10 @@ export class AmapTransitClient {
 
   getDistanceMatrixMaxOrigins(): number {
     return Math.max(1, this.config.distanceMatrixMaxOrigins || 25);
+  }
+
+  getTransitDirectionConcurrency(): number {
+    return Math.max(1, Math.min(5, this.config.transitDirectionConcurrency || 1));
   }
 
   async getDistanceMatrixToDestination(input: {
@@ -143,6 +149,7 @@ export class AmapTransitClient {
     origin: AmapCoordinate;
     destination: AmapCoordinate;
     city?: string | null;
+    cityCandidates?: string[];
   }): Promise<AmapDirectionResult | null> {
     if (!this.isEnabled()) {
       return null;
@@ -154,7 +161,61 @@ export class AmapTransitClient {
     if (input.mode === 'walking') {
       return this.getWalkingDirection(input.origin, input.destination);
     }
-    return this.getTransitDirection(input.origin, input.destination, input.city);
+    return this.getTransitDirection(
+      input.origin,
+      input.destination,
+      this.buildTransitCityCandidates(input.cityCandidates, input.city),
+    );
+  }
+
+  async getTransitDirectionsToDestination(input: {
+    origins: AmapCoordinate[];
+    destination: AmapCoordinate;
+    city?: string | null;
+    cityCandidates?: string[];
+    concurrency?: number;
+  }): Promise<Array<AmapDirectionResult | null>> {
+    if (!this.isEnabled()) {
+      return input.origins.map(() => null);
+    }
+
+    if (input.origins.length === 0) {
+      return [];
+    }
+
+    const concurrency = Math.max(
+      1,
+      Math.min(5, input.concurrency ?? this.getTransitDirectionConcurrency()),
+    );
+    const results: Array<AmapDirectionResult | null> = new Array(
+      input.origins.length,
+    ).fill(null);
+
+    for (let i = 0; i < input.origins.length; i += concurrency) {
+      const chunk = input.origins.slice(i, i + concurrency);
+      const chunkResults = await Promise.all(
+        chunk.map(async (origin) => {
+          try {
+            return await this.getTransitDirection(
+              origin,
+              input.destination,
+              this.buildTransitCityCandidates(input.cityCandidates, input.city),
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Amap transit direction request failed: ${(error as Error).message}`,
+            );
+            return null;
+          }
+        }),
+      );
+
+      for (let offset = 0; offset < chunkResults.length; offset += 1) {
+        results[i + offset] = chunkResults[offset];
+      }
+    }
+
+    return results;
   }
 
   private async getDrivingDirection(
@@ -210,37 +271,111 @@ export class AmapTransitClient {
   private async getTransitDirection(
     origin: AmapCoordinate,
     destination: AmapCoordinate,
-    city?: string | null,
+    cityCandidates?: Array<string | null>,
   ): Promise<AmapDirectionResult | null> {
-    const url = new URL('https://restapi.amap.com/v5/direction/transit/integrated');
-    url.searchParams.set('key', this.config.webApiKey);
-    url.searchParams.set('origin', this.toLngLat(origin));
-    url.searchParams.set('destination', this.toLngLat(destination));
-    if (city?.trim()) {
-      url.searchParams.set('city1', city.trim());
-      url.searchParams.set('city2', city.trim());
+    const attempts = this.buildTransitCityCandidates(cityCandidates);
+    const failures: string[] = [];
+
+    for (const cityCandidate of attempts) {
+      let qpsRetryCount = 0;
+      while (qpsRetryCount <= this.config.transitQpsRetryCount) {
+        try {
+          const url = new URL('https://restapi.amap.com/v3/direction/transit/integrated');
+          url.searchParams.set('key', this.config.webApiKey);
+          url.searchParams.set('origin', this.toLngLat(origin));
+          url.searchParams.set('destination', this.toLngLat(destination));
+          url.searchParams.set('extensions', 'base');
+          if (cityCandidate) {
+            url.searchParams.set('city', cityCandidate);
+            url.searchParams.set('cityd', cityCandidate);
+          }
+
+          const body = await this.requestTransitJson<AmapTransitDirectionResponse>(url.toString());
+          if (body.status !== '1') {
+            if (this.isTransitQpsExceeded(body.info) && qpsRetryCount < this.config.transitQpsRetryCount) {
+              qpsRetryCount += 1;
+              await this.delay(this.config.transitQpsBackoffMs * qpsRetryCount);
+              continue;
+            }
+            failures.push(
+              `city=${cityCandidate ?? '[auto]'} status=${body.status ?? 'unknown'} info=${body.info ?? 'unknown'}`,
+            );
+            break;
+          }
+
+          const transit = body.route?.transits?.[0];
+          if (!transit) {
+            failures.push(`city=${cityCandidate ?? '[auto]'} empty_route`);
+            break;
+          }
+
+          const distanceMeters = this.toFiniteInt(transit.distance ?? null);
+          const durationSeconds = this.toFiniteInt(transit.duration ?? null);
+          const summary = this.buildTransitSummary(transit.segments ?? []);
+
+          return {
+            distanceMeters,
+            durationMinutes:
+              durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
+            summary,
+          };
+        } catch (error) {
+          failures.push(
+            `city=${cityCandidate ?? '[auto]'} request_error=${(error as Error).message}`,
+          );
+          break;
+        }
+      }
     }
 
-    const body = await this.requestJson<AmapTransitDirectionResponse>(url.toString());
-    if (body.status !== '1') {
-      return null;
+    if (failures.length > 0) {
+      this.logger.warn(
+        `Amap transit direction exhausted candidates origin=${this.toLngLat(origin)} destination=${this.toLngLat(destination)} failures=${failures.join(' | ')}`,
+      );
     }
+    return null;
+  }
 
-    const transit = body.route?.transits?.[0];
-    if (!transit) {
-      return null;
-    }
+  private buildTransitCityCandidates(
+    cityCandidates?: Array<string | null | undefined>,
+    fallbackCity?: string | null,
+  ): Array<string | null> {
+    const normalized: string[] = [];
+    const seen = new Set<string>();
 
-    const distanceMeters = this.toFiniteInt(transit.distance ?? null);
-    const durationSeconds = this.toFiniteInt(transit.duration ?? null);
-    const summary = this.buildTransitSummary(transit.segments ?? []);
+    const push = (value?: string | null) => {
+      const trimmed = value?.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (!this.isSupportedTransitCityCandidate(trimmed)) {
+        return;
+      }
 
-    return {
-      distanceMeters,
-      durationMinutes:
-        durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
-      summary,
+      const variants = new Set<string>([trimmed]);
+      if (/市$/.test(trimmed)) {
+        variants.add(trimmed.replace(/市$/, ''));
+      }
+
+      for (const variant of variants) {
+        if (!variant || seen.has(variant)) {
+          continue;
+        }
+        seen.add(variant);
+        normalized.push(variant);
+      }
     };
+
+    for (const city of cityCandidates ?? []) {
+      push(city);
+    }
+    push(fallbackCity);
+
+    return normalized.length > 0 ? normalized : [null];
+  }
+
+  private isSupportedTransitCityCandidate(value: string): boolean {
+    return /[\u4e00-\u9fff]/.test(value) || /^[A-Za-z0-9\s().\-]+$/.test(value);
   }
 
   private buildTransitSummary(
@@ -306,5 +441,41 @@ export class AmapTransitClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async requestTransitJson<T>(url: string): Promise<T> {
+    await this.waitForTransitWindow();
+    try {
+      return await this.requestJson<T>(url);
+    } finally {
+      this.lastTransitRequestAt = Date.now();
+    }
+  }
+
+  private async waitForTransitWindow(): Promise<void> {
+    const run = async () => {
+      const minInterval = Math.max(0, this.config.transitRequestMinIntervalMs || 0);
+      const waitMs = Math.max(0, this.lastTransitRequestAt + minInterval - Date.now());
+      if (waitMs > 0) {
+        await this.delay(waitMs);
+      }
+    };
+
+    const ticket = this.transitQueue.then(run, run);
+    this.transitQueue = ticket.then(
+      () => undefined,
+      () => undefined,
+    );
+    await ticket;
+  }
+
+  private isTransitQpsExceeded(info?: string | null): boolean {
+    return (info ?? '').toUpperCase().includes('CUQPS_HAS_EXCEEDED_THE_LIMIT');
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 }

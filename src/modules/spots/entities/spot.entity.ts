@@ -6,6 +6,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
+import type {
+  OpeningHoursRule,
+  QueueProfile,
+} from '../../../common/utils/planning-metadata.util';
 
 export interface SpotIntroI18n {
   'zh-CN'?: string;
@@ -99,6 +103,15 @@ export class Spot {
   @Column({ type: 'jsonb', nullable: true })
   noticeI18n: SpotNoticeI18n | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  openingHoursJson: OpeningHoursRule[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  specialClosureDates: string[] | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  lastEntryTime: string | null;
+
   @Column({ type: 'int', default: 240 })
   suggestedDurationMinutes: number;
 
@@ -112,7 +125,10 @@ export class Spot {
   reservationNoteI18n: SpotReservationNoteI18n | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  closedWeekdays: number[] | null;
+  queueProfileJson: QueueProfile | null;
+
+  @Column({ type: 'boolean', default: false })
+  hasFoodCourt: boolean;
 
   @Column({
     type: 'decimal',

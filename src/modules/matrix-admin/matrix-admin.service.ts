@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
@@ -11,11 +18,21 @@ import {
   TransitCachePointType,
   TransitCacheStatus,
 } from '../transit-cache/entities/transit-cache.entity';
-import { TransitCachePrecomputeService } from '../transit-cache/transit-cache-precompute.service';
+import {
+  TransitCachePrecomputeService,
+  TransitPointNeighborhoodRecomputeSummary,
+} from '../transit-cache/transit-cache-precompute.service';
 import { GetCityMatrixStatusQueryDto } from './dto/get-city-matrix-status-query.dto';
 import { ListMatrixCitiesQueryDto } from './dto/list-matrix-cities-query.dto';
+import { ListMatrixJobsQueryDto } from './dto/list-matrix-jobs-query.dto';
 import { RecomputeCityMatrixDto } from './dto/recompute-city-matrix.dto';
 import { RecomputePointMatrixDto } from './dto/recompute-point-matrix.dto';
+import {
+  MatrixRecomputeJob,
+  MatrixRecomputeJobStatus,
+  MatrixRecomputeMode,
+  MatrixRecomputeScope,
+} from './entities/matrix-recompute-job.entity';
 
 interface MatrixCityRef {
   city: string;
@@ -28,8 +45,13 @@ interface MatrixNode {
   name: string;
   city: string;
   province: string | null;
+  cityI18n?: Record<string, string | undefined> | null;
   latitude: number;
   longitude: number;
+  arrivalAnchorLatitude?: number;
+  arrivalAnchorLongitude?: number;
+  departureAnchorLatitude?: number;
+  departureAnchorLongitude?: number;
   entryLatitude?: number;
   entryLongitude?: number;
   exitLatitude?: number;
@@ -40,8 +62,11 @@ interface MatrixEdgeRow {
   fromPointId: string;
   toPointId: string;
   status: TransitCacheStatus;
+  transitMinutes: number;
   drivingMinutes: number;
   walkingMeters: number;
+  walkingMinutes: number;
+  transitProviderStatus: string | null;
   updatedAt: Date;
 }
 
@@ -72,12 +97,39 @@ export interface MatrixNodeCountSummary {
 
 export interface MatrixModeCoverageSummary {
   readyEdgeCount: number;
+  transitReadyEdges: number;
+  transitFallbackEdges: number;
   drivingMinutesPresent: number;
   walkingMetersPresent: number;
+  walkingMinutesPresent: number;
+  transitMinutesPresent: number;
+  hasTransit: boolean;
   hasDriving: boolean;
   hasWalking: boolean;
+  transitCoverage: number;
   drivingCoverage: number;
   walkingCoverage: number;
+  walkingMinutesCoverage: number;
+  fallbackEdgeRatio: number;
+}
+
+export interface MatrixAnchorMissingItem {
+  pointId: string;
+  pointType: TransitCachePointType;
+  name: string;
+  missingAnchors: string[];
+}
+
+export interface MatrixSolverIssueSummary {
+  reason: string;
+  count: number;
+  samples: string[];
+}
+
+export interface MatrixDiagnosticsSummary {
+  anchorMissingCount: number;
+  anchorMissingSample: MatrixAnchorMissingItem[];
+  solverIssueSummary: MatrixSolverIssueSummary[];
 }
 
 export interface MatrixCityNodeItem {
@@ -92,6 +144,8 @@ export interface MatrixCityNodeItem {
   inReadyEdges: number;
   outMissingEdges: number;
   inMissingEdges: number;
+  modeReadyEdges: number;
+  expectedModeEdges: number;
   status: MatrixNodeStatus;
 }
 
@@ -112,6 +166,7 @@ export interface MatrixCityStatusBase {
   directed: MatrixCoverageSummary;
   undirected: MatrixCoverageSummary;
   modeCoverage: MatrixModeCoverageSummary;
+  diagnostics: MatrixDiagnosticsSummary;
   canGenerate: boolean;
   lastUpdatedAt: string | null;
 }
@@ -123,8 +178,37 @@ export interface MatrixCityStatusItem extends MatrixCityStatusBase {
 
 export interface MatrixCityListItem extends MatrixCityStatusBase {}
 
+export interface MatrixRecomputeJobItem {
+  id: string;
+  scope: MatrixRecomputeScope;
+  city: string;
+  province: string | null;
+  pointId: string | null;
+  pointType: TransitCachePointType | null;
+  modes: MatrixRecomputeMode[];
+  status: MatrixRecomputeJobStatus;
+  totalEdges: number;
+  processedEdges: number;
+  transitReadyEdges: number;
+  transitFallbackEdges: number;
+  drivingReadyEdges: number;
+  walkingReadyEdges: number;
+  walkingMinutesReadyEdges: number;
+  message: string | null;
+  lastError: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 @Injectable()
-export class MatrixAdminService {
+export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(MatrixAdminService.name);
+  private jobWorkerTimer: NodeJS.Timeout | null = null;
+  private jobWorkerRunning = false;
+  private matrixJobsTableReady: boolean | null = null;
+
   constructor(
     @InjectRepository(Spot)
     private readonly spotRepository: Repository<Spot>,
@@ -138,8 +222,24 @@ export class MatrixAdminService {
     private readonly airportRepository: Repository<LocationAirport>,
     @InjectRepository(TransitCache)
     private readonly transitCacheRepository: Repository<TransitCache>,
+    @InjectRepository(MatrixRecomputeJob)
+    private readonly matrixRecomputeJobRepository: Repository<MatrixRecomputeJob>,
     private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
   ) {}
+
+  onModuleInit(): void {
+    this.jobWorkerTimer = setInterval(() => {
+      void this.runPendingMatrixJob();
+    }, 3000);
+    void this.runPendingMatrixJob();
+  }
+
+  onModuleDestroy(): void {
+    if (this.jobWorkerTimer) {
+      clearInterval(this.jobWorkerTimer);
+      this.jobWorkerTimer = null;
+    }
+  }
 
   async listCities(query: ListMatrixCitiesQueryDto): Promise<{
     total: number;
@@ -177,31 +277,61 @@ export class MatrixAdminService {
     });
   }
 
-  recomputeCity(dto: RecomputeCityMatrixDto): {
+  async listJobs(query: ListMatrixJobsQueryDto): Promise<{
+    items: MatrixRecomputeJobItem[];
+  }> {
+    if (!(await this.ensureMatrixJobsTableReady())) {
+      return { items: [] };
+    }
+
+    const qb = this.matrixRecomputeJobRepository
+      .createQueryBuilder('job')
+      .orderBy('job.createdAt', 'DESC')
+      .take(query.limit);
+
+    const city = this.normalizeOptional(query.city);
+    const province = this.normalizeOptional(query.province);
+    if (city) {
+      qb.where('LOWER(job.city) = LOWER(:city)', { city });
+    }
+    if (province) {
+      if (city) {
+        qb.andWhere('LOWER(job.province) = LOWER(:province)', { province });
+      } else {
+        qb.where('LOWER(job.province) = LOWER(:province)', { province });
+      }
+    }
+
+    const jobs = await qb.getMany();
+    return {
+      items: jobs.map((job) => this.toJobItem(job)),
+    };
+  }
+
+  async recomputeCity(dto: RecomputeCityMatrixDto): Promise<{
     accepted: true;
-    city: string;
-    province: string | null;
+    job: MatrixRecomputeJobItem;
     message: string;
-  } {
+  }> {
     const city = this.normalizeRequired(dto.city, 'city');
     const province = this.normalizeOptional(dto.province);
-
-    this.transitCachePrecomputeService.scheduleRecomputeCity(city, province);
+    const job = await this.createMatrixJob({
+      scope: 'city',
+      city,
+      province,
+      modes: this.normalizeModes(dto.modes, ['transit', 'driving', 'walking']),
+    });
 
     return {
       accepted: true,
-      city,
-      province,
-      message: 'Matrix recompute scheduled.',
+      job: this.toJobItem(job),
+      message: 'Matrix recompute job queued.',
     };
   }
 
   async recomputePoint(dto: RecomputePointMatrixDto): Promise<{
     accepted: true;
-    pointId: string;
-    pointType: TransitCachePointType;
-    city: string;
-    province: string | null;
+    job: MatrixRecomputeJobItem;
     message: string;
   }> {
     const pointId = this.normalizeRequired(dto.pointId, 'pointId');
@@ -209,6 +339,12 @@ export class MatrixAdminService {
 
     const hasCenterCoordinate =
       Number.isFinite(point.latitude) && Number.isFinite(point.longitude);
+    const hasArrivalAnchorCoordinate =
+      Number.isFinite(point.arrivalAnchorLatitude) &&
+      Number.isFinite(point.arrivalAnchorLongitude);
+    const hasDepartureAnchorCoordinate =
+      Number.isFinite(point.departureAnchorLatitude) &&
+      Number.isFinite(point.departureAnchorLongitude);
     const hasSpotEntryExitCoordinate =
       point.pointType === 'spot' &&
       Number.isFinite(point.entryLatitude) &&
@@ -219,7 +355,11 @@ export class MatrixAdminService {
     const coordinateInvalid =
       point.pointType === 'spot'
         ? !hasSpotEntryExitCoordinate
-        : !hasCenterCoordinate;
+        : !(
+            hasCenterCoordinate ||
+            hasArrivalAnchorCoordinate ||
+            hasDepartureAnchorCoordinate
+          );
 
     if (coordinateInvalid) {
       throw new BadRequestException({
@@ -228,27 +368,335 @@ export class MatrixAdminService {
       });
     }
 
-    this.transitCachePrecomputeService.scheduleRecomputePointNeighborhood({
-      id: point.id,
-      pointType: point.pointType,
+    const job = await this.createMatrixJob({
+      scope: 'point',
       city: point.city,
       province: point.province,
-      latitude: point.latitude,
-      longitude: point.longitude,
-      entryLatitude: point.entryLatitude,
-      entryLongitude: point.entryLongitude,
-      exitLatitude: point.exitLatitude,
-      exitLongitude: point.exitLongitude,
+      pointId: point.id,
+      pointType: point.pointType,
+      modes: this.normalizeModes(dto.modes, ['transit']),
     });
 
     return {
       accepted: true,
-      pointId: point.id,
-      pointType: point.pointType,
-      city: point.city,
-      province: point.province,
-      message: 'Point neighborhood recompute scheduled.',
+      job: this.toJobItem(job),
+      message: 'Matrix point recompute job queued.',
     };
+  }
+
+  private async createMatrixJob(input: {
+    scope: MatrixRecomputeScope;
+    city: string;
+    province: string | null;
+    pointId?: string;
+    pointType?: TransitCachePointType;
+    modes: MatrixRecomputeMode[];
+  }): Promise<MatrixRecomputeJob> {
+    if (!(await this.ensureMatrixJobsTableReady())) {
+      throw new BadRequestException({
+        code: 'MATRIX_RECOMPUTE_JOB_TABLE_UNAVAILABLE',
+        message: 'Matrix recompute jobs table is unavailable.',
+      });
+    }
+
+    const job = this.matrixRecomputeJobRepository.create({
+      scope: input.scope,
+      city: input.city,
+      province: input.province,
+      pointId: input.pointId ?? null,
+      pointType: input.pointType ?? null,
+      modes: input.modes,
+      status: 'pending',
+      totalEdges: 0,
+      processedEdges: 0,
+      transitReadyEdges: 0,
+      transitFallbackEdges: 0,
+      drivingReadyEdges: 0,
+      walkingReadyEdges: 0,
+      walkingMinutesReadyEdges: 0,
+      message: null,
+      lastError: null,
+      startedAt: null,
+      finishedAt: null,
+    });
+    return this.matrixRecomputeJobRepository.save(job);
+  }
+
+  private normalizeModes(
+    modes: MatrixRecomputeMode[] | undefined,
+    defaultModes: MatrixRecomputeMode[],
+  ): MatrixRecomputeMode[] {
+    const normalized = Array.from(
+      new Set((modes ?? defaultModes).filter((item) => !!item)),
+    );
+    return normalized.length > 0 ? normalized : defaultModes;
+  }
+
+  private toJobItem(job: MatrixRecomputeJob): MatrixRecomputeJobItem {
+    return {
+      id: job.id,
+      scope: job.scope,
+      city: job.city,
+      province: job.province,
+      pointId: job.pointId,
+      pointType: job.pointType,
+      modes: Array.isArray(job.modes) ? job.modes : [],
+      status: job.status,
+      totalEdges: job.totalEdges,
+      processedEdges: job.processedEdges,
+      transitReadyEdges: job.transitReadyEdges,
+      transitFallbackEdges: job.transitFallbackEdges,
+      drivingReadyEdges: job.drivingReadyEdges,
+      walkingReadyEdges: job.walkingReadyEdges,
+      walkingMinutesReadyEdges: job.walkingMinutesReadyEdges,
+      message: job.message,
+      lastError: job.lastError,
+      startedAt: job.startedAt ? job.startedAt.toISOString() : null,
+      finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
+      createdAt: job.createdAt.toISOString(),
+      updatedAt: job.updatedAt.toISOString(),
+    };
+  }
+
+  private async ensureMatrixJobsTableReady(): Promise<boolean> {
+    if (this.matrixJobsTableReady === true) {
+      return this.matrixJobsTableReady;
+    }
+
+    try {
+      await this.matrixRecomputeJobRepository.query(
+        'SELECT 1 FROM "matrix_recompute_jobs" LIMIT 1',
+      );
+      this.matrixJobsTableReady = true;
+    } catch (error) {
+      this.matrixJobsTableReady = null;
+      this.logger.warn(
+        `Matrix recompute jobs table unavailable: ${(error as Error).message}`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private async runPendingMatrixJob(): Promise<void> {
+    if (this.jobWorkerRunning || !(await this.ensureMatrixJobsTableReady())) {
+      return;
+    }
+
+    this.jobWorkerRunning = true;
+    try {
+      const job = await this.claimNextPendingJob();
+      if (!job) {
+        return;
+      }
+      await this.processMatrixJob(job);
+    } finally {
+      this.jobWorkerRunning = false;
+    }
+  }
+
+  private async claimNextPendingJob(): Promise<MatrixRecomputeJob | null> {
+    const job = await this.matrixRecomputeJobRepository.findOne({
+      where: { status: 'pending' },
+      order: { createdAt: 'ASC' },
+    });
+    if (!job) {
+      return null;
+    }
+
+    const updateResult = await this.matrixRecomputeJobRepository
+      .createQueryBuilder()
+      .update(MatrixRecomputeJob)
+      .set({
+        status: 'running',
+        startedAt: new Date(),
+        finishedAt: null,
+        lastError: null,
+        message: 'Processing...',
+        processedEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      })
+      .where('id = :id', { id: job.id })
+      .andWhere('status = :status', { status: 'pending' })
+      .execute();
+
+    if (!updateResult.affected) {
+      return null;
+    }
+
+    return this.matrixRecomputeJobRepository.findOne({ where: { id: job.id } });
+  }
+
+  private async processMatrixJob(job: MatrixRecomputeJob): Promise<void> {
+    if (!job) {
+      return;
+    }
+
+    try {
+      const nodes = await this.loadCityNodes(job.city, job.province);
+      const nodeIds = Array.from(new Set(nodes.map((item) => item.id)));
+      const totalEdges =
+        job.scope === 'city'
+          ? nodeIds.length <= 1
+            ? 0
+            : nodeIds.length * (nodeIds.length - 1)
+          : nodeIds.length <= 1
+            ? 0
+            : (nodeIds.length - 1) * 2;
+
+      job.totalEdges = totalEdges;
+      job.message = this.buildJobQueuedMessage(job);
+      await this.matrixRecomputeJobRepository.save(job);
+
+      if (job.scope === 'city') {
+        await this.transitCachePrecomputeService.recomputeCity(job.city, job.province, {
+          modes: job.modes,
+          onChunkProgress: (chunk) => this.applyJobChunkProgress(job.id, chunk),
+        });
+      } else {
+        const point = await this.resolvePointById(job.pointId as string);
+        const summary = await this.transitCachePrecomputeService.recomputePointNeighborhood(
+          {
+            id: point.id,
+            pointType: point.pointType,
+            city: point.city,
+            province: point.province,
+            cityI18n: point.cityI18n ?? null,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            arrivalAnchorLatitude: point.arrivalAnchorLatitude,
+            arrivalAnchorLongitude: point.arrivalAnchorLongitude,
+            departureAnchorLatitude: point.departureAnchorLatitude,
+            departureAnchorLongitude: point.departureAnchorLongitude,
+            entryLatitude: point.entryLatitude,
+            entryLongitude: point.entryLongitude,
+            exitLatitude: point.exitLatitude,
+            exitLongitude: point.exitLongitude,
+          },
+          {
+            modes: job.modes,
+            onChunkProgress: (chunk) => this.applyJobChunkProgress(job.id, chunk),
+          },
+        );
+        job.message = this.buildPointRecomputeMessage(summary);
+      }
+
+      const refreshed = await this.matrixRecomputeJobRepository.findOneOrFail({
+        where: { id: job.id },
+      });
+      refreshed.status = this.resolveMatrixJobStatus(refreshed);
+      refreshed.message =
+        refreshed.message ||
+        this.buildJobCompletionMessage(refreshed);
+      refreshed.finishedAt = new Date();
+      await this.matrixRecomputeJobRepository.save(refreshed);
+    } catch (error) {
+      const message = (error as Error).message;
+      job.status = /CUQPS_HAS_EXCEEDED_THE_LIMIT/i.test(message)
+        ? 'rate_limited'
+        : 'failed';
+      job.lastError = message;
+      job.message = 'Matrix recompute job failed.';
+      job.finishedAt = new Date();
+      await this.matrixRecomputeJobRepository.save(job);
+      this.logger.warn(
+        `Matrix recompute job failed jobId=${job.id}: ${message}`,
+      );
+    }
+  }
+
+  private async applyJobChunkProgress(
+    jobId: string,
+    chunk: {
+      totalEdges: number;
+      transitReadyEdges: number;
+      transitFallbackEdges: number;
+      drivingReadyEdges: number;
+      walkingReadyEdges: number;
+      walkingMinutesReadyEdges: number;
+    },
+  ): Promise<void> {
+    await this.matrixRecomputeJobRepository
+      .createQueryBuilder()
+      .update(MatrixRecomputeJob)
+      .set({
+        processedEdges: () => `"processedEdges" + ${chunk.totalEdges}`,
+        transitReadyEdges: () =>
+          `"transitReadyEdges" + ${chunk.transitReadyEdges}`,
+        transitFallbackEdges: () =>
+          `"transitFallbackEdges" + ${chunk.transitFallbackEdges}`,
+        drivingReadyEdges: () =>
+          `"drivingReadyEdges" + ${chunk.drivingReadyEdges}`,
+        walkingReadyEdges: () =>
+          `"walkingReadyEdges" + ${chunk.walkingReadyEdges}`,
+        walkingMinutesReadyEdges: () =>
+          `"walkingMinutesReadyEdges" + ${chunk.walkingMinutesReadyEdges}`,
+        message: 'Processing...',
+      })
+      .where('id = :id', { id: jobId })
+      .execute();
+  }
+
+  private resolveMatrixJobStatus(
+    job: MatrixRecomputeJob,
+  ): MatrixRecomputeJobStatus {
+    const expected = Math.max(0, job.totalEdges);
+    if (expected === 0) {
+      return 'completed';
+    }
+
+    let allSelectedModesReady = true;
+    if (job.modes.includes('transit')) {
+      allSelectedModesReady =
+        allSelectedModesReady && job.transitReadyEdges >= expected;
+    }
+    if (job.modes.includes('driving')) {
+      allSelectedModesReady =
+        allSelectedModesReady && job.drivingReadyEdges >= expected;
+    }
+    if (job.modes.includes('walking')) {
+      allSelectedModesReady =
+        allSelectedModesReady &&
+        job.walkingReadyEdges >= expected &&
+        job.walkingMinutesReadyEdges >= expected;
+    }
+
+    if (allSelectedModesReady && job.processedEdges >= expected) {
+      return 'completed';
+    }
+    return job.processedEdges > 0 ? 'partial' : 'failed';
+  }
+
+  private buildJobQueuedMessage(job: MatrixRecomputeJob): string {
+    const modeText = job.modes.join(' / ') || 'transit';
+    if (job.scope === 'point') {
+      return `Queued point recompute for modes: ${modeText}.`;
+    }
+    return `Queued city recompute for modes: ${modeText}.`;
+  }
+
+  private buildJobCompletionMessage(job: MatrixRecomputeJob): string {
+    const segments: string[] = [];
+    if (job.modes.includes('transit')) {
+      segments.push(`公交 ready ${job.transitReadyEdges}/${job.totalEdges}`);
+      if (job.transitFallbackEdges > 0) {
+        segments.push(`fallback ${job.transitFallbackEdges}/${job.totalEdges}`);
+      }
+    }
+    if (job.modes.includes('driving')) {
+      segments.push(`驾车 ${job.drivingReadyEdges}/${job.totalEdges}`);
+    }
+    if (job.modes.includes('walking')) {
+      segments.push(`步行 ${job.walkingReadyEdges}/${job.totalEdges}`);
+    }
+    return segments.length > 0
+      ? segments.join('，')
+      : 'Matrix recompute job completed.';
   }
 
   private async computeCityStatus(
@@ -281,9 +729,15 @@ export class MatrixAdminService {
     const readyDirectedSet = new Set<string>();
     const outReadyByNode = new Map<string, number>();
     const inReadyByNode = new Map<string, number>();
+    const outModeReadyByNode = new Map<string, number>();
+    const inModeReadyByNode = new Map<string, number>();
 
+    let transitReadyEdges = 0;
+    let transitFallbackEdges = 0;
     let drivingMinutesPresent = 0;
     let walkingMetersPresent = 0;
+    let walkingMinutesPresent = 0;
+    let transitMinutesPresent = 0;
     let latestUpdatedAt: Date | null = null;
 
     if (uniqueNodeIds.length > 1) {
@@ -311,8 +765,34 @@ export class MatrixAdminService {
             if (edge.drivingMinutes > 0) {
               drivingMinutesPresent += 1;
             }
+            if (edge.transitMinutes > 0) {
+              transitMinutesPresent += 1;
+            }
             if (edge.walkingMeters > 0) {
               walkingMetersPresent += 1;
+            }
+            if (edge.walkingMinutes > 0) {
+              walkingMinutesPresent += 1;
+            }
+            if (edge.transitProviderStatus === 'ready') {
+              transitReadyEdges += 1;
+            } else if (edge.transitProviderStatus === 'fallback') {
+              transitFallbackEdges += 1;
+            }
+            if (
+              edge.drivingMinutes > 0 &&
+              edge.walkingMeters > 0 &&
+              edge.walkingMinutes > 0 &&
+              edge.transitProviderStatus === 'ready'
+            ) {
+              outModeReadyByNode.set(
+                edge.fromPointId,
+                (outModeReadyByNode.get(edge.fromPointId) || 0) + 1,
+              );
+              inModeReadyByNode.set(
+                edge.toPointId,
+                (inModeReadyByNode.get(edge.toPointId) || 0) + 1,
+              );
             }
           }
           if (!latestUpdatedAt || edge.updatedAt > latestUpdatedAt) {
@@ -368,7 +848,14 @@ export class MatrixAdminService {
     }
 
     const nodesDetail = options.includeNodes
-      ? this.buildNodeDetails(uniqueNodeIds, nodeById, outReadyByNode, inReadyByNode)
+      ? this.buildNodeDetails(
+          uniqueNodeIds,
+          nodeById,
+          outReadyByNode,
+          inReadyByNode,
+          outModeReadyByNode,
+          inModeReadyByNode,
+        )
       : [];
 
     const directed: MatrixCoverageSummary = {
@@ -385,6 +872,26 @@ export class MatrixAdminService {
       coverage: this.toCoverage(expectedUndirected, readyUndirected),
     };
 
+    const modeCoverage: MatrixModeCoverageSummary = {
+      readyEdgeCount: readyDirected,
+      transitReadyEdges,
+      transitFallbackEdges,
+      drivingMinutesPresent,
+      walkingMetersPresent,
+      walkingMinutesPresent,
+      transitMinutesPresent,
+      hasTransit: transitReadyEdges > 0,
+      hasDriving: drivingMinutesPresent > 0,
+      hasWalking: walkingMetersPresent > 0,
+      transitCoverage: this.toCoverage(readyDirected, transitReadyEdges),
+      drivingCoverage: this.toCoverage(readyDirected, drivingMinutesPresent),
+      walkingCoverage: this.toCoverage(readyDirected, walkingMetersPresent),
+      walkingMinutesCoverage: this.toCoverage(readyDirected, walkingMinutesPresent),
+      fallbackEdgeRatio: this.toCoverage(readyDirected, transitFallbackEdges),
+    };
+
+    const diagnostics = await this.buildCityDiagnostics(city, province);
+
     return {
       city,
       province,
@@ -394,18 +901,12 @@ export class MatrixAdminService {
         readyDirected,
         staleDirected,
         failedDirected,
+        modeCoverage,
       }),
       directed,
       undirected,
-      modeCoverage: {
-        readyEdgeCount: readyDirected,
-        drivingMinutesPresent,
-        walkingMetersPresent,
-        hasDriving: drivingMinutesPresent > 0,
-        hasWalking: walkingMetersPresent > 0,
-        drivingCoverage: this.toCoverage(readyDirected, drivingMinutesPresent),
-        walkingCoverage: this.toCoverage(readyDirected, walkingMetersPresent),
-      },
+      modeCoverage,
+      diagnostics,
       canGenerate: undirected.missing === 0,
       lastUpdatedAt: latestUpdatedAt ? latestUpdatedAt.toISOString() : null,
       nodes: nodesDetail,
@@ -418,6 +919,8 @@ export class MatrixAdminService {
     nodeById: Map<string, MatrixNode>,
     outReadyByNode: Map<string, number>,
     inReadyByNode: Map<string, number>,
+    outModeReadyByNode: Map<string, number>,
+    inModeReadyByNode: Map<string, number>,
   ): MatrixCityNodeItem[] {
     const peerCount = Math.max(0, nodeIds.length - 1);
 
@@ -432,13 +935,20 @@ export class MatrixAdminService {
       const inReadyEdges = inReadyByNode.get(nodeId) || 0;
       const outMissingEdges = Math.max(0, peerCount - outReadyEdges);
       const inMissingEdges = Math.max(0, peerCount - inReadyEdges);
+      const outModeReadyEdges = outModeReadyByNode.get(nodeId) || 0;
+      const inModeReadyEdges = inModeReadyByNode.get(nodeId) || 0;
       const expectedTotal = peerCount * 2;
       const readyTotal = outReadyEdges + inReadyEdges;
+      const modeReadyTotal = outModeReadyEdges + inModeReadyEdges;
 
       let status: MatrixNodeStatus = 'pending';
-      if (expectedTotal > 0 && readyTotal === expectedTotal) {
+      if (
+        expectedTotal > 0 &&
+        readyTotal === expectedTotal &&
+        modeReadyTotal === expectedTotal
+      ) {
         status = 'ready';
-      } else if (readyTotal > 0) {
+      } else if (readyTotal > 0 || modeReadyTotal > 0) {
         status = 'partial';
       }
 
@@ -454,6 +964,8 @@ export class MatrixAdminService {
         inReadyEdges,
         outMissingEdges,
         inMissingEdges,
+        modeReadyEdges: modeReadyTotal,
+        expectedModeEdges: expectedTotal,
         status,
       });
     }
@@ -513,13 +1025,14 @@ export class MatrixAdminService {
           'shopping.name AS name',
           'shopping.city AS city',
           'shopping.province AS province',
-          'shopping.latitude AS latitude',
-          'shopping.longitude AS longitude',
+          'COALESCE(shopping."arrivalAnchorLatitude", shopping.latitude) AS latitude',
+          'COALESCE(shopping."arrivalAnchorLongitude", shopping.longitude) AS longitude',
         ])
         .where('shopping."isPublished" = true')
         .andWhere('LOWER(shopping.city) = LOWER(:city)', { city })
-        .andWhere('shopping.latitude IS NOT NULL')
-        .andWhere('shopping.longitude IS NOT NULL')
+        .andWhere(
+          '(shopping."arrivalAnchorLatitude" IS NOT NULL AND shopping."arrivalAnchorLongitude" IS NOT NULL) OR (shopping.latitude IS NOT NULL AND shopping.longitude IS NOT NULL)',
+        )
         .andWhere(
           province
             ? 'LOWER(shopping.province) = LOWER(:province)'
@@ -541,13 +1054,14 @@ export class MatrixAdminService {
           'restaurant.name AS name',
           'restaurant.city AS city',
           'restaurant.province AS province',
-          'restaurant.latitude AS latitude',
-          'restaurant.longitude AS longitude',
+          'COALESCE(restaurant."arrivalAnchorLatitude", restaurant.latitude) AS latitude',
+          'COALESCE(restaurant."arrivalAnchorLongitude", restaurant.longitude) AS longitude',
         ])
         .where('restaurant."isPublished" = true')
         .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city })
-        .andWhere('restaurant.latitude IS NOT NULL')
-        .andWhere('restaurant.longitude IS NOT NULL')
+        .andWhere(
+          '(restaurant."arrivalAnchorLatitude" IS NOT NULL AND restaurant."arrivalAnchorLongitude" IS NOT NULL) OR (restaurant.latitude IS NOT NULL AND restaurant.longitude IS NOT NULL)',
+        )
         .andWhere(
           province
             ? 'LOWER(restaurant.province) = LOWER(:province)'
@@ -569,13 +1083,14 @@ export class MatrixAdminService {
           'hotel.name AS name',
           'hotel.city AS city',
           'hotel.province AS province',
-          'hotel.latitude AS latitude',
-          'hotel.longitude AS longitude',
+          'COALESCE(hotel."arrivalAnchorLatitude", hotel.latitude) AS latitude',
+          'COALESCE(hotel."arrivalAnchorLongitude", hotel.longitude) AS longitude',
         ])
         .where('hotel."isPublished" = true')
         .andWhere('LOWER(hotel.city) = LOWER(:city)', { city })
-        .andWhere('hotel.latitude IS NOT NULL')
-        .andWhere('hotel.longitude IS NOT NULL')
+        .andWhere(
+          '(hotel."arrivalAnchorLatitude" IS NOT NULL AND hotel."arrivalAnchorLongitude" IS NOT NULL) OR (hotel.latitude IS NOT NULL AND hotel.longitude IS NOT NULL)',
+        )
         .andWhere(
           province
             ? 'LOWER(hotel.province) = LOWER(:province)'
@@ -599,11 +1114,12 @@ export class MatrixAdminService {
           'airport.name AS name',
           'city.name AS city',
           'province.name AS province',
-          'airport.latitude AS latitude',
-          'airport.longitude AS longitude',
+          'COALESCE(airport."arrivalAnchorLatitude", airport.latitude) AS latitude',
+          'COALESCE(airport."arrivalAnchorLongitude", airport.longitude) AS longitude',
         ])
-        .where('airport.latitude IS NOT NULL')
-        .andWhere('airport.longitude IS NOT NULL')
+        .where(
+          '(airport."arrivalAnchorLatitude" IS NOT NULL AND airport."arrivalAnchorLongitude" IS NOT NULL) OR (airport.latitude IS NOT NULL AND airport.longitude IS NOT NULL)',
+        )
         .andWhere('LOWER(city.name) = LOWER(:city)', { city })
         .andWhere(
           province
@@ -660,8 +1176,11 @@ export class MatrixAdminService {
         'cache."fromPointId" AS "fromPointId"',
         'cache."toPointId" AS "toPointId"',
         'cache.status AS status',
+        'cache."transitMinutes" AS "transitMinutes"',
         'cache."drivingMinutes" AS "drivingMinutes"',
         'cache."walkingMeters" AS "walkingMeters"',
+        'cache."walkingMinutes" AS "walkingMinutes"',
+        'cache."transitProviderStatus" AS "transitProviderStatus"',
         'cache."updatedAt" AS "updatedAt"',
       ])
       .where('LOWER(cache.city) = LOWER(:city)', { city })
@@ -694,8 +1213,9 @@ export class MatrixAdminService {
         .createQueryBuilder('shopping')
         .select(['shopping.city AS city', 'shopping.province AS province'])
         .where('shopping."isPublished" = true')
-        .andWhere('shopping.latitude IS NOT NULL')
-        .andWhere('shopping.longitude IS NOT NULL')
+        .andWhere(
+          '(shopping."arrivalAnchorLatitude" IS NOT NULL AND shopping."arrivalAnchorLongitude" IS NOT NULL) OR (shopping.latitude IS NOT NULL AND shopping.longitude IS NOT NULL)',
+        )
         .groupBy('shopping.city')
         .addGroupBy('shopping.province')
         .getRawMany<MatrixCityRef>(),
@@ -703,8 +1223,9 @@ export class MatrixAdminService {
         .createQueryBuilder('restaurant')
         .select(['restaurant.city AS city', 'restaurant.province AS province'])
         .where('restaurant."isPublished" = true')
-        .andWhere('restaurant.latitude IS NOT NULL')
-        .andWhere('restaurant.longitude IS NOT NULL')
+        .andWhere(
+          '(restaurant."arrivalAnchorLatitude" IS NOT NULL AND restaurant."arrivalAnchorLongitude" IS NOT NULL) OR (restaurant.latitude IS NOT NULL AND restaurant.longitude IS NOT NULL)',
+        )
         .groupBy('restaurant.city')
         .addGroupBy('restaurant.province')
         .getRawMany<MatrixCityRef>(),
@@ -712,8 +1233,9 @@ export class MatrixAdminService {
         .createQueryBuilder('hotel')
         .select(['hotel.city AS city', 'hotel.province AS province'])
         .where('hotel."isPublished" = true')
-        .andWhere('hotel.latitude IS NOT NULL')
-        .andWhere('hotel.longitude IS NOT NULL')
+        .andWhere(
+          '(hotel."arrivalAnchorLatitude" IS NOT NULL AND hotel."arrivalAnchorLongitude" IS NOT NULL) OR (hotel.latitude IS NOT NULL AND hotel.longitude IS NOT NULL)',
+        )
         .groupBy('hotel.city')
         .addGroupBy('hotel.province')
         .getRawMany<MatrixCityRef>(),
@@ -722,8 +1244,9 @@ export class MatrixAdminService {
         .leftJoin('airport.city', 'city')
         .leftJoin('city.province', 'province')
         .select(['city.name AS city', 'province.name AS province'])
-        .where('airport.latitude IS NOT NULL')
-        .andWhere('airport.longitude IS NOT NULL')
+        .where(
+          '(airport."arrivalAnchorLatitude" IS NOT NULL AND airport."arrivalAnchorLongitude" IS NOT NULL) OR (airport.latitude IS NOT NULL AND airport.longitude IS NOT NULL)',
+        )
         .groupBy('city.name')
         .addGroupBy('province.name')
         .getRawMany<MatrixCityRef>(),
@@ -796,6 +1319,7 @@ export class MatrixAdminService {
         name: spot.name,
         city: spot.city,
         province: spot.province || null,
+        cityI18n: spot.cityI18n,
         latitude: spot.entryLatitude as number,
         longitude: spot.entryLongitude as number,
         entryLatitude: spot.entryLatitude as number,
@@ -811,8 +1335,13 @@ export class MatrixAdminService {
         name: shopping.name,
         city: shopping.city,
         province: shopping.province || null,
+        cityI18n: shopping.cityI18n,
         latitude: shopping.latitude as number,
         longitude: shopping.longitude as number,
+        arrivalAnchorLatitude: shopping.arrivalAnchorLatitude ?? undefined,
+        arrivalAnchorLongitude: shopping.arrivalAnchorLongitude ?? undefined,
+        departureAnchorLatitude: shopping.departureAnchorLatitude ?? undefined,
+        departureAnchorLongitude: shopping.departureAnchorLongitude ?? undefined,
       };
     }
     if (restaurant) {
@@ -822,8 +1351,15 @@ export class MatrixAdminService {
         name: restaurant.name,
         city: restaurant.city,
         province: restaurant.province || null,
+        cityI18n: restaurant.cityI18n,
         latitude: restaurant.latitude as number,
         longitude: restaurant.longitude as number,
+        arrivalAnchorLatitude: restaurant.arrivalAnchorLatitude ?? undefined,
+        arrivalAnchorLongitude: restaurant.arrivalAnchorLongitude ?? undefined,
+        departureAnchorLatitude:
+          restaurant.departureAnchorLatitude ?? undefined,
+        departureAnchorLongitude:
+          restaurant.departureAnchorLongitude ?? undefined,
       };
     }
     if (hotel) {
@@ -833,8 +1369,13 @@ export class MatrixAdminService {
         name: hotel.name,
         city: hotel.city,
         province: hotel.province || null,
+        cityI18n: hotel.cityI18n,
         latitude: hotel.latitude as number,
         longitude: hotel.longitude as number,
+        arrivalAnchorLatitude: hotel.arrivalAnchorLatitude ?? undefined,
+        arrivalAnchorLongitude: hotel.arrivalAnchorLongitude ?? undefined,
+        departureAnchorLatitude: hotel.departureAnchorLatitude ?? undefined,
+        departureAnchorLongitude: hotel.departureAnchorLongitude ?? undefined,
       };
     }
     if (airport && airport.city) {
@@ -844,8 +1385,15 @@ export class MatrixAdminService {
         name: airport.name,
         city: airport.city.name,
         province: airport.city.province?.name || null,
+        cityI18n: airport.city.nameI18n,
         latitude: airport.latitude as number,
         longitude: airport.longitude as number,
+        arrivalAnchorLatitude: airport.arrivalAnchorLatitude ?? undefined,
+        arrivalAnchorLongitude: airport.arrivalAnchorLongitude ?? undefined,
+        departureAnchorLatitude:
+          airport.departureAnchorLatitude ?? undefined,
+        departureAnchorLongitude:
+          airport.departureAnchorLongitude ?? undefined,
       };
     }
 
@@ -871,6 +1419,28 @@ export class MatrixAdminService {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private buildPointRecomputeMessage(
+    summary: TransitPointNeighborhoodRecomputeSummary,
+  ): string {
+    if (!summary.transitEnabled) {
+      return 'Point neighborhood recomputed, but AMAP transit is disabled.';
+    }
+
+    if (summary.totalEdges === 0) {
+      return 'Point neighborhood recomputed, but there were no eligible edges.';
+    }
+
+    if (summary.transitReadyEdges === 0 && summary.transitFallbackEdges > 0) {
+      const candidateText =
+        summary.transitCityCandidates.length > 0
+          ? ` tried city=${summary.transitCityCandidates.join(' / ')}.`
+          : '';
+      return `Point neighborhood recomputed, but all transit edges still fell back.${candidateText}`;
+    }
+
+    return `Point neighborhood recomputed. transit ready ${summary.transitReadyEdges}/${summary.totalEdges}, fallback ${summary.transitFallbackEdges}/${summary.totalEdges}.`;
+  }
+
   private buildEdgeKey(fromPointId: string, toPointId: string): string {
     return `${fromPointId}->${toPointId}`;
   }
@@ -880,11 +1450,19 @@ export class MatrixAdminService {
     readyDirected: number;
     staleDirected: number;
     failedDirected: number;
+    modeCoverage: MatrixModeCoverageSummary;
   }): MatrixCityStatus {
     if (input.expectedDirected <= 0) {
       return 'pending';
     }
-    if (input.readyDirected === input.expectedDirected) {
+    const allEdgesReady = input.readyDirected === input.expectedDirected;
+    const allModesReady =
+      input.modeCoverage.drivingCoverage >= 1 &&
+      input.modeCoverage.walkingCoverage >= 1 &&
+      input.modeCoverage.walkingMinutesCoverage >= 1 &&
+      input.modeCoverage.transitCoverage >= 1;
+
+    if (allEdgesReady && allModesReady) {
       return 'ready';
     }
     if (input.readyDirected > 0) {
@@ -897,6 +1475,251 @@ export class MatrixAdminService {
       return 'stale';
     }
     return 'pending';
+  }
+
+  private async buildCityDiagnostics(
+    city: string,
+    province: string | null,
+  ): Promise<MatrixDiagnosticsSummary> {
+    const [
+      spots,
+      shopping,
+      restaurants,
+      hotels,
+      airports,
+    ] = await Promise.all([
+      this.loadPublishedSpots(city, province),
+      this.loadPublishedShopping(city, province),
+      this.loadPublishedRestaurants(city, province),
+      this.loadPublishedHotels(city, province),
+      this.loadPublishedAirports(city, province),
+    ]);
+
+    const anchorMissingSample: MatrixAnchorMissingItem[] = [];
+    let anchorMissingCount = 0;
+    const solverIssueMap = new Map<string, { count: number; samples: string[] }>();
+
+    const pushAnchorMissing = (
+      pointId: string,
+      pointType: TransitCachePointType,
+      name: string,
+      missingAnchors: string[],
+    ) => {
+      if (missingAnchors.length === 0) {
+        return;
+      }
+      anchorMissingCount += 1;
+      if (anchorMissingSample.length < 50) {
+        anchorMissingSample.push({
+          pointId,
+          pointType,
+          name,
+          missingAnchors,
+        });
+      }
+    };
+
+    const addIssue = (reason: string, sample: string) => {
+      const current = solverIssueMap.get(reason) ?? { count: 0, samples: [] };
+      current.count += 1;
+      if (current.samples.length < 8 && !current.samples.includes(sample)) {
+        current.samples.push(sample);
+      }
+      solverIssueMap.set(reason, current);
+    };
+
+    for (const spot of spots) {
+      const missingAnchors: string[] = [];
+      if (!this.hasFiniteCoordinatePair(spot.entryLatitude, spot.entryLongitude)) {
+        missingAnchors.push('entry');
+        addIssue('spot_missing_entry_coordinate', spot.id);
+      }
+      if (!this.hasFiniteCoordinatePair(spot.exitLatitude, spot.exitLongitude)) {
+        missingAnchors.push('exit');
+        addIssue('spot_missing_exit_coordinate', spot.id);
+      }
+      pushAnchorMissing(spot.id, 'spot', spot.name, missingAnchors);
+
+      if (!Array.isArray(spot.openingHoursJson) || spot.openingHoursJson.length === 0) {
+        addIssue('spot_missing_opening_hours', spot.id);
+      }
+      if (!spot.lastEntryTime?.trim()) {
+        addIssue('spot_missing_last_entry_time', spot.id);
+      }
+    }
+
+    for (const item of shopping) {
+      if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
+        addIssue('shopping_missing_route_coordinate', item.id);
+      }
+      if (!Array.isArray(item.openingHoursJson) || item.openingHoursJson.length === 0) {
+        addIssue('shopping_missing_opening_hours', item.id);
+      }
+    }
+
+    for (const item of restaurants) {
+      if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
+        addIssue('restaurant_missing_route_coordinate', item.id);
+      }
+      if (!Array.isArray(item.mealSlots) || item.mealSlots.length === 0) {
+        addIssue('restaurant_missing_meal_slots', item.id);
+      }
+      if (
+        !Array.isArray(item.mealTimeWindowsJson) ||
+        item.mealTimeWindowsJson.length === 0
+      ) {
+        addIssue('restaurant_missing_meal_time_windows', item.id);
+      }
+    }
+
+    for (const item of hotels) {
+      if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
+        addIssue('hotel_missing_route_coordinate', item.id);
+      }
+      if (item.foreignerFriendly === false) {
+        addIssue('hotel_not_foreigner_friendly', item.id);
+      }
+      if (!item.checkInTime?.trim()) {
+        addIssue('hotel_missing_check_in_time', item.id);
+      }
+      if (!item.checkOutTime?.trim()) {
+        addIssue('hotel_missing_check_out_time', item.id);
+      }
+      if (item.bookingStatus === 'sold_out') {
+        addIssue('hotel_sold_out', item.id);
+      }
+    }
+
+    for (const airport of airports) {
+      const missingAnchors: string[] = [];
+      if (
+        !this.hasFiniteCoordinatePair(
+          airport.arrivalAnchorLatitude,
+          airport.arrivalAnchorLongitude,
+        )
+      ) {
+        missingAnchors.push('arrival_terminal');
+      }
+      if (
+        !this.hasFiniteCoordinatePair(
+          airport.departureAnchorLatitude,
+          airport.departureAnchorLongitude,
+        )
+      ) {
+        missingAnchors.push('departure_terminal');
+      }
+      pushAnchorMissing(airport.id, 'airport', airport.name, missingAnchors);
+
+      if (
+        !this.hasFiniteCoordinatePair(airport.latitude, airport.longitude) &&
+        missingAnchors.length === 2
+      ) {
+        addIssue('airport_missing_route_coordinate', airport.id);
+      }
+      if (airport.arrivalBufferMinutes === null || airport.arrivalBufferMinutes === undefined) {
+        addIssue('airport_missing_arrival_buffer', airport.id);
+      }
+      if (
+        airport.departureBufferMinutes === null ||
+        airport.departureBufferMinutes === undefined
+      ) {
+        addIssue('airport_missing_departure_buffer', airport.id);
+      }
+    }
+
+    const solverIssueSummary = Array.from(solverIssueMap.entries())
+      .map(([reason, value]) => ({
+        reason,
+        count: value.count,
+        samples: value.samples,
+      }))
+      .sort((a, b) => {
+        if (a.count !== b.count) {
+          return b.count - a.count;
+        }
+        return a.reason.localeCompare(b.reason);
+      });
+
+    return {
+      anchorMissingCount,
+      anchorMissingSample,
+      solverIssueSummary,
+    };
+  }
+
+  private async loadPublishedSpots(city: string, province: string | null): Promise<Spot[]> {
+    const qb = this.spotRepository
+      .createQueryBuilder('spot')
+      .where('spot."isPublished" = true')
+      .andWhere('LOWER(spot.city) = LOWER(:city)', { city });
+    if (province) {
+      qb.andWhere('LOWER(spot.province) = LOWER(:province)', { province });
+    }
+    return qb.getMany();
+  }
+
+  private async loadPublishedShopping(
+    city: string,
+    province: string | null,
+  ): Promise<ShoppingPlace[]> {
+    const qb = this.shoppingRepository
+      .createQueryBuilder('shopping')
+      .where('shopping."isPublished" = true')
+      .andWhere('LOWER(shopping.city) = LOWER(:city)', { city });
+    if (province) {
+      qb.andWhere('LOWER(shopping.province) = LOWER(:province)', { province });
+    }
+    return qb.getMany();
+  }
+
+  private async loadPublishedRestaurants(
+    city: string,
+    province: string | null,
+  ): Promise<RestaurantPlace[]> {
+    const qb = this.restaurantRepository
+      .createQueryBuilder('restaurant')
+      .where('restaurant."isPublished" = true')
+      .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city });
+    if (province) {
+      qb.andWhere('LOWER(restaurant.province) = LOWER(:province)', { province });
+    }
+    return qb.getMany();
+  }
+
+  private async loadPublishedHotels(
+    city: string,
+    province: string | null,
+  ): Promise<HotelPlace[]> {
+    const qb = this.hotelRepository
+      .createQueryBuilder('hotel')
+      .where('hotel."isPublished" = true')
+      .andWhere('LOWER(hotel.city) = LOWER(:city)', { city });
+    if (province) {
+      qb.andWhere('LOWER(hotel.province) = LOWER(:province)', { province });
+    }
+    return qb.getMany();
+  }
+
+  private async loadPublishedAirports(
+    city: string,
+    province: string | null,
+  ): Promise<LocationAirport[]> {
+    const qb = this.airportRepository
+      .createQueryBuilder('airport')
+      .leftJoinAndSelect('airport.city', 'city')
+      .leftJoinAndSelect('city.province', 'province')
+      .where('LOWER(city.name) = LOWER(:city)', { city });
+    if (province) {
+      qb.andWhere('LOWER(province.name) = LOWER(:province)', { province });
+    }
+    return qb.getMany();
+  }
+
+  private hasFiniteCoordinatePair(
+    latitude: number | null | undefined,
+    longitude: number | null | undefined,
+  ): boolean {
+    return Number.isFinite(latitude) && Number.isFinite(longitude);
   }
 
   private toCoverage(expected: number, ready: number): number {

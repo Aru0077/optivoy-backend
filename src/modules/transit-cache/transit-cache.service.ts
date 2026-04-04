@@ -9,6 +9,7 @@ import { Spot } from '../spots/entities/spot.entity';
 import {
   TransitCache,
   TransitCachePointType,
+  TransitProviderStatus,
   TransitCacheStatus,
 } from './entities/transit-cache.entity';
 
@@ -22,8 +23,10 @@ export interface UpsertTransitEdgeInput {
   transitMinutes: number;
   drivingMinutes: number;
   walkingMeters: number;
+  walkingMinutes: number;
   transitSummary?: string | null;
   transitSummaryI18n?: Record<string, string> | null;
+  transitProviderStatus?: TransitProviderStatus | null;
   distanceKm: number;
   provider?: string;
   status?: TransitCacheStatus;
@@ -152,8 +155,10 @@ export class TransitCacheService {
           transitMinutes: input.transitMinutes,
           drivingMinutes: input.drivingMinutes,
           walkingMeters: input.walkingMeters,
+          walkingMinutes: input.walkingMinutes,
           transitSummary: input.transitSummary?.trim() || null,
           transitSummaryI18n: input.transitSummaryI18n ?? null,
+          transitProviderStatus: input.transitProviderStatus ?? null,
           distanceKm: input.distanceKm,
           provider: input.provider?.trim() || 'amap',
           status: input.status ?? 'ready',
@@ -171,8 +176,10 @@ export class TransitCacheService {
   async findReadyEdgesByCityAndPointIds(
     city: string,
     pointIds: string[],
+    province?: string | null,
   ): Promise<TransitCache[]> {
     const normalizedCity = city.trim();
+    const normalizedProvince = province?.trim() || null;
     const uniquePointIds = Array.from(
       new Set(pointIds.map((item) => item.trim()).filter((item) => item.length > 0)),
     );
@@ -184,7 +191,46 @@ export class TransitCacheService {
     return this.transitCacheRepository
       .createQueryBuilder('cache')
       .where('LOWER(cache.city) = LOWER(:city)', { city: normalizedCity })
+      .andWhere(
+        normalizedProvince
+          ? 'LOWER(cache.province) = LOWER(:province)'
+          : '1=1',
+        normalizedProvince ? { province: normalizedProvince } : {},
+      )
       .andWhere('cache.status = :status', { status: 'ready' })
+      .andWhere('cache."fromPointId" IN (:...pointIds)', {
+        pointIds: uniquePointIds,
+      })
+      .andWhere('cache."toPointId" IN (:...pointIds)', {
+        pointIds: uniquePointIds,
+      })
+      .getMany();
+  }
+
+  async findEdgesByCityAndPointIds(
+    city: string,
+    pointIds: string[],
+    province?: string | null,
+  ): Promise<TransitCache[]> {
+    const normalizedCity = city.trim();
+    const normalizedProvince = province?.trim() || null;
+    const uniquePointIds = Array.from(
+      new Set(pointIds.map((item) => item.trim()).filter((item) => item.length > 0)),
+    );
+
+    if (!normalizedCity || uniquePointIds.length === 0) {
+      return [];
+    }
+
+    return this.transitCacheRepository
+      .createQueryBuilder('cache')
+      .where('LOWER(cache.city) = LOWER(:city)', { city: normalizedCity })
+      .andWhere(
+        normalizedProvince
+          ? 'LOWER(cache.province) = LOWER(:province)'
+          : '1=1',
+        normalizedProvince ? { province: normalizedProvince } : {},
+      )
       .andWhere('cache."fromPointId" IN (:...pointIds)', {
         pointIds: uniquePointIds,
       })

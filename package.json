@@ -16,6 +16,8 @@
     "seed:admin:prod": "node dist/modules/admin/seeds/run-admin-seed.js",
     "seed:regression": "ts-node -r tsconfig-paths/register src/modules/trip-planner/seeds/run-regression-dataset-seed.ts",
     "seed:regression:prod": "node dist/modules/trip-planner/seeds/run-regression-dataset-seed.js",
+    "backfill:planning-metadata": "ts-node -r tsconfig-paths/register src/modules/trip-planner/scripts/run-planning-metadata-backfill.ts",
+    "backfill:planning-metadata:prod": "node dist/modules/trip-planner/scripts/run-planning-metadata-backfill.js",
     "cleanup:transit-cache": "ts-node -r tsconfig-paths/register src/modules/transit-cache/scripts/run-transit-cache-cleanup.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest --passWithNoTests",

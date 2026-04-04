@@ -14,9 +14,14 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
   ValidateIf,
 } from 'class-validator';
 import { BasePlaceUpdateDto } from '../../../common/dto/base-place.dto';
+import {
+  OpeningHoursItemDto,
+  QueueProfileDto,
+} from '../../../common/dto/planning-metadata.dto';
 
 export class UpdateSpotDto extends BasePlaceUpdateDto {
   @IsOptional()
@@ -38,6 +43,26 @@ export class UpdateSpotDto extends BasePlaceUpdateDto {
   @Type(() => Number)
   @IsLongitude()
   exitLongitude?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ValidateNested({ each: true })
+  @Type(() => OpeningHoursItemDto)
+  openingHoursJson?: OpeningHoursItemDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(366)
+  @IsString({ each: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { each: true })
+  specialClosureDates?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  lastEntryTime?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -78,16 +103,6 @@ export class UpdateSpotDto extends BasePlaceUpdateDto {
   reservationNoteEn?: string;
 
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(7)
-  @ArrayUnique()
-  @Type(() => Number)
-  @IsInt({ each: true })
-  @Min(0, { each: true })
-  @Max(6, { each: true })
-  closedWeekdays?: number[];
-
-  @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
@@ -98,6 +113,16 @@ export class UpdateSpotDto extends BasePlaceUpdateDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   ticketPriceMaxCny?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => QueueProfileDto)
+  queueProfileJson?: QueueProfileDto;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hasFoodCourt?: boolean;
 
   @IsOptional()
   @Type(() => Boolean)

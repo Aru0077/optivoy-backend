@@ -6,6 +6,8 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsNumber,
   IsOptional,
   IsString,
@@ -13,26 +15,36 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
   ValidateIf,
 } from 'class-validator';
 import { BasePlaceUpdateDto } from '../../../common/dto/base-place.dto';
+import {
+  MealTimeWindowDto,
+  QueueProfileDto,
+} from '../../../common/dto/planning-metadata.dto';
 import { RestaurantMealSlot } from '../entities/restaurant.entity';
 
 export class UpdateRestaurantDto extends BasePlaceUpdateDto {
   @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  openingHours?: string;
+  @Type(() => Number)
+  @IsLatitude()
+  arrivalAnchorLatitude?: number;
 
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(7)
-  @ArrayUnique()
   @Type(() => Number)
-  @IsInt({ each: true })
-  @Min(0, { each: true })
-  @Max(6, { each: true })
-  closedWeekdays?: number[];
+  @IsLongitude()
+  arrivalAnchorLongitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  departureAnchorLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  departureAnchorLongitude?: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -47,6 +59,13 @@ export class UpdateRestaurantDto extends BasePlaceUpdateDto {
   @ArrayMaxSize(4)
   @IsIn(['breakfast', 'lunch', 'dinner', 'night_snack'], { each: true })
   mealSlots?: RestaurantMealSlot[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ValidateNested({ each: true })
+  @Type(() => MealTimeWindowDto)
+  mealTimeWindowsJson?: MealTimeWindowDto[];
 
   @IsOptional()
   @IsArray()
@@ -83,6 +102,11 @@ export class UpdateRestaurantDto extends BasePlaceUpdateDto {
   )
   @Matches(/^https?:\/\/\S+$/i)
   reservationUrl?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => QueueProfileDto)
+  queueProfileJson?: QueueProfileDto;
 
   @IsOptional()
   @Type(() => Boolean)

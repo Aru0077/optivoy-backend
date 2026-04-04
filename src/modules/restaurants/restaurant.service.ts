@@ -10,6 +10,11 @@ import {
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
 import {
+  ensureCoordinatePair,
+  normalizeMealTimeWindows,
+  normalizeQueueProfile,
+} from '../../common/utils/planning-metadata.util';
+import {
   ensureGuideI18n,
   ensureIntroI18n,
   ensureNoticeI18n,
@@ -80,16 +85,21 @@ export class RestaurantService extends BasePlaceService<RestaurantPlace> {
         message: 'mealSlots must contain at least one value.',
       });
     }
+    const planningMetadata = this.normalizePlanningMetadata(dto, mealSlots);
 
     const item = this.restaurantRepository.create({
       ...this.buildBaseCreatePayload(dto),
-      openingHours: dto.openingHours?.trim() || null,
-      closedWeekdays: normalizeWeekdays(dto.closedWeekdays),
+      arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
+      departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
+      departureAnchorLongitude: planningMetadata.departureAnchorLongitude,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
       mealSlots,
+      mealTimeWindowsJson: planningMetadata.mealTimeWindowsJson,
       cuisineTags: normalizeStringArray(dto.cuisineTags),
       reservationRequired: dto.reservationRequired ?? false,
       reservationUrl: dto.reservationUrl?.trim() || null,
+      queueProfileJson: planningMetadata.queueProfileJson,
       avgSpendMinCny: dto.avgSpendMinCny ?? null,
       avgSpendMaxCny: dto.avgSpendMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
@@ -128,25 +138,42 @@ export class RestaurantService extends BasePlaceService<RestaurantPlace> {
         message: 'reservationUrl is required when reservationRequired is true.',
       });
     }
+    const nextMealSlots =
+      dto.mealSlots !== undefined
+        ? normalizeMealSlots(dto.mealSlots)
+        : normalizeMealSlots(item.mealSlots);
+    const planningMetadata = this.normalizePlanningMetadata(
+      dto,
+      nextMealSlots,
+      item,
+    );
 
-    if (dto.openingHours !== undefined) {
-      item.openingHours = dto.openingHours?.trim() || null;
-    }
-    if (dto.closedWeekdays !== undefined) {
-      item.closedWeekdays = normalizeWeekdays(dto.closedWeekdays);
-    }
     if (dto.suggestedDurationMinutes !== undefined) {
       item.suggestedDurationMinutes = dto.suggestedDurationMinutes;
     }
     if (dto.mealSlots !== undefined) {
-      const mealSlots = normalizeMealSlots(dto.mealSlots);
-      if (mealSlots.length === 0) {
+      if (nextMealSlots.length === 0) {
         throw new BadRequestException({
           code: 'RESTAURANT_MEAL_SLOTS_REQUIRED',
           message: 'mealSlots must contain at least one value.',
         });
       }
-      item.mealSlots = mealSlots;
+      item.mealSlots = nextMealSlots;
+    }
+    if (dto.arrivalAnchorLatitude !== undefined) {
+      item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
+    }
+    if (dto.arrivalAnchorLongitude !== undefined) {
+      item.arrivalAnchorLongitude = planningMetadata.arrivalAnchorLongitude;
+    }
+    if (dto.departureAnchorLatitude !== undefined) {
+      item.departureAnchorLatitude = planningMetadata.departureAnchorLatitude;
+    }
+    if (dto.departureAnchorLongitude !== undefined) {
+      item.departureAnchorLongitude = planningMetadata.departureAnchorLongitude;
+    }
+    if (dto.mealTimeWindowsJson !== undefined) {
+      item.mealTimeWindowsJson = planningMetadata.mealTimeWindowsJson;
     }
     if (dto.cuisineTags !== undefined) {
       item.cuisineTags = normalizeStringArray(dto.cuisineTags);
@@ -156,6 +183,9 @@ export class RestaurantService extends BasePlaceService<RestaurantPlace> {
     }
     if (dto.reservationUrl !== undefined) {
       item.reservationUrl = dto.reservationUrl?.trim() || null;
+    }
+    if (dto.queueProfileJson !== undefined) {
+      item.queueProfileJson = planningMetadata.queueProfileJson;
     }
 
     const nextAvgSpendMinCny =
@@ -333,13 +363,17 @@ export class RestaurantService extends BasePlaceService<RestaurantPlace> {
       guideI18n,
       notice: resolveNotice(noticeI18n, lang),
       noticeI18n,
-      openingHours: item.openingHours?.trim() || null,
-      closedWeekdays: normalizeWeekdays(item.closedWeekdays),
+      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
+      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
+      departureAnchorLatitude: item.departureAnchorLatitude,
+      departureAnchorLongitude: item.departureAnchorLongitude,
       suggestedDurationMinutes: item.suggestedDurationMinutes ?? 90,
       mealSlots: normalizeMealSlots(item.mealSlots),
+      mealTimeWindowsJson: normalizeMealTimeWindows(item.mealTimeWindowsJson),
       cuisineTags: normalizeStringArray(item.cuisineTags),
       reservationRequired: item.reservationRequired === true,
       reservationUrl: item.reservationUrl?.trim() || null,
+      queueProfileJson: normalizeQueueProfile(item.queueProfileJson),
       avgSpendMinCny: item.avgSpendMinCny,
       avgSpendMaxCny: item.avgSpendMaxCny,
       isPublished: item.isPublished,
@@ -347,16 +381,85 @@ export class RestaurantService extends BasePlaceService<RestaurantPlace> {
       updatedAt: item.updatedAt,
     };
   }
-}
 
-function normalizeWeekdays(values?: number[] | null): number[] {
-  if (!values?.length) {
-    return [];
+  private normalizePlanningMetadata(
+    dto: Pick<
+      CreateRestaurantDto | UpdateRestaurantDto,
+      | 'arrivalAnchorLatitude'
+      | 'arrivalAnchorLongitude'
+      | 'departureAnchorLatitude'
+      | 'departureAnchorLongitude'
+      | 'mealTimeWindowsJson'
+      | 'queueProfileJson'
+    >,
+    mealSlots: RestaurantMealSlot[],
+    current?: RestaurantPlace,
+  ) {
+    try {
+      const arrivalAnchorLatitude =
+        dto.arrivalAnchorLatitude !== undefined
+          ? dto.arrivalAnchorLatitude ?? null
+          : current?.arrivalAnchorLatitude ?? null;
+      const arrivalAnchorLongitude =
+        dto.arrivalAnchorLongitude !== undefined
+          ? dto.arrivalAnchorLongitude ?? null
+          : current?.arrivalAnchorLongitude ?? null;
+      const departureAnchorLatitude =
+        dto.departureAnchorLatitude !== undefined
+          ? dto.departureAnchorLatitude ?? null
+          : current?.departureAnchorLatitude ?? null;
+      const departureAnchorLongitude =
+        dto.departureAnchorLongitude !== undefined
+          ? dto.departureAnchorLongitude ?? null
+          : current?.departureAnchorLongitude ?? null;
+
+      ensureCoordinatePair(
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        'arrivalAnchor',
+      );
+      ensureCoordinatePair(
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        'departureAnchor',
+      );
+
+      const mealTimeWindowsJson =
+        dto.mealTimeWindowsJson !== undefined
+          ? normalizeMealTimeWindows(dto.mealTimeWindowsJson)
+          : current?.mealTimeWindowsJson ?? null;
+
+      if (mealTimeWindowsJson?.length) {
+        for (const window of mealTimeWindowsJson) {
+          if (!mealSlots.includes(window.mealSlot)) {
+            throw new Error(
+              `mealTimeWindowsJson contains mealSlot ${window.mealSlot} which is not present in mealSlots.`,
+            );
+          }
+        }
+      }
+
+      return {
+        arrivalAnchorLatitude,
+        arrivalAnchorLongitude,
+        departureAnchorLatitude,
+        departureAnchorLongitude,
+        mealTimeWindowsJson,
+        queueProfileJson:
+          dto.queueProfileJson !== undefined
+            ? normalizeQueueProfile(dto.queueProfileJson)
+            : current?.queueProfileJson ?? null,
+      };
+    } catch (error) {
+      throw new BadRequestException({
+        code: 'RESTAURANT_PLANNING_METADATA_INVALID',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Restaurant planning metadata is invalid.',
+      });
+    }
   }
-  const normalized = values.filter(
-    (value) => Number.isInteger(value) && value >= 0 && value <= 6,
-  );
-  return Array.from(new Set(normalized)).sort((a, b) => a - b);
 }
 
 function normalizeStringArray(values?: string[] | null): string[] {

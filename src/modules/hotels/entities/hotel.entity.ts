@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
+import type { BookingStatus } from '../../../common/utils/planning-metadata.util';
 
 export interface HotelIntroI18n {
   'zh-CN'?: string;
@@ -74,6 +75,18 @@ export class HotelPlace {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  arrivalAnchorLongitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLatitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  departureAnchorLongitude: number | null;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   coverImageUrl: string | null;
 
@@ -100,6 +113,12 @@ export class HotelPlace {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   bookingUrl: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  bookingStatus: BookingStatus | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  bookableDatesJson: string[] | null;
 
   @Column({
     type: 'decimal',

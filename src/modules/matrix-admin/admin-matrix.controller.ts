@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { GetCityMatrixStatusQueryDto } from './dto/get-city-matrix-status-query.dto';
 import { ListMatrixCitiesQueryDto } from './dto/list-matrix-cities-query.dto';
+import { ListMatrixJobsQueryDto } from './dto/list-matrix-jobs-query.dto';
 import { RecomputeCityMatrixDto } from './dto/recompute-city-matrix.dto';
 import { RecomputePointMatrixDto } from './dto/recompute-point-matrix.dto';
 import { MatrixAdminService } from './matrix-admin.service';
@@ -27,6 +28,12 @@ export class AdminMatrixController {
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   getCityStatus(@Query() query: GetCityMatrixStatusQueryDto) {
     return this.matrixAdminService.getCityStatus(query);
+  }
+
+  @Get('jobs')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  listJobs(@Query() query: ListMatrixJobsQueryDto) {
+    return this.matrixAdminService.listJobs(query);
   }
 
   @Post('recompute-city')

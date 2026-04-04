@@ -8,10 +8,15 @@ import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import {
   AmapCoordinate,
+  AmapDirectionResult,
   AmapMatrixItem,
   AmapTransitClient,
 } from './amap/amap-transit.client';
-import { TransitCachePointType } from './entities/transit-cache.entity';
+import {
+  TransitCache,
+  TransitCachePointType,
+  TransitProviderStatus,
+} from './entities/transit-cache.entity';
 import { TransitCacheService } from './transit-cache.service';
 
 interface TransitPoint {
@@ -19,10 +24,45 @@ interface TransitPoint {
   pointType: TransitCachePointType;
   city: string;
   province: string | null;
+  cityI18n?: Record<string, string | undefined> | null;
+  transitCityCandidates: string[];
   originLatitude: number;
   originLongitude: number;
   destinationLatitude: number;
   destinationLongitude: number;
+}
+
+export interface TransitPointNeighborhoodRecomputeSummary {
+  pointId: string;
+  pointType: TransitCachePointType;
+  city: string;
+  province: string | null;
+  totalEdges: number;
+  transitReadyEdges: number;
+  transitFallbackEdges: number;
+  transitCityCandidates: string[];
+  transitEnabled: boolean;
+  drivingReadyEdges: number;
+  walkingReadyEdges: number;
+  walkingMinutesReadyEdges: number;
+}
+
+export type TransitPrecomputeMode = 'transit' | 'driving' | 'walking';
+
+interface TransitPrecomputeChunkSummary {
+  totalEdges: number;
+  transitReadyEdges: number;
+  transitFallbackEdges: number;
+  drivingReadyEdges: number;
+  walkingReadyEdges: number;
+  walkingMinutesReadyEdges: number;
+}
+
+interface TransitPrecomputeOptions {
+  modes?: TransitPrecomputeMode[];
+  onChunkProgress?: (
+    summary: TransitPrecomputeChunkSummary,
+  ) => Promise<void> | void;
 }
 
 export interface TransitPointRecomputeInput {
@@ -30,12 +70,17 @@ export interface TransitPointRecomputeInput {
   pointType: TransitCachePointType;
   city: string;
   province?: string | null;
+  cityI18n?: Record<string, string | undefined> | null;
   latitude?: number;
   longitude?: number;
   entryLatitude?: number;
   entryLongitude?: number;
   exitLatitude?: number;
   exitLongitude?: number;
+  arrivalAnchorLatitude?: number;
+  arrivalAnchorLongitude?: number;
+  departureAnchorLatitude?: number;
+  departureAnchorLongitude?: number;
 }
 
 @Injectable()
@@ -76,7 +121,11 @@ export class TransitCachePrecomputeService {
     });
   }
 
-  async recomputeCity(city: string, province?: string | null): Promise<void> {
+  async recomputeCity(
+    city: string,
+    province?: string | null,
+    options: TransitPrecomputeOptions = {},
+  ): Promise<void> {
     const normalizedCity = city.trim();
     if (!normalizedCity) {
       return;
@@ -94,10 +143,20 @@ export class TransitCachePrecomputeService {
       return;
     }
 
+    const existingEdgeMap = await this.loadExistingEdgeMap(
+      normalizedCity,
+      province,
+      points.map((item) => item.id),
+    );
+
     for (const destination of points) {
       const origins = points.filter((item) => item.id !== destination.id);
       try {
-        await this.recomputeEdgesToDestination(origins, destination);
+        await this.recomputeEdgesToDestination(origins, destination, {
+          modes: options.modes,
+          existingEdgeMap,
+          onChunkProgress: options.onChunkProgress,
+        });
       } catch (error) {
         this.logger.warn(
           `Transit precompute destination failed city=${normalizedCity} destination=${destination.id}: ${(error as Error).message}`,
@@ -108,17 +167,47 @@ export class TransitCachePrecomputeService {
 
   async recomputePointNeighborhood(
     point: TransitPointRecomputeInput,
-  ): Promise<void> {
+    options: TransitPrecomputeOptions = {},
+  ): Promise<TransitPointNeighborhoodRecomputeSummary> {
     const normalizedPoint = this.normalizePointInput(point);
     if (!normalizedPoint) {
-      return;
+      return {
+        pointId: point.id,
+        pointType: point.pointType,
+        city: point.city.trim(),
+        province: point.province?.trim() || null,
+        totalEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        transitCityCandidates: this.resolveTransitCityCandidates(
+          point.city,
+          point.cityI18n,
+        ),
+        transitEnabled: this.amapTransitClient.isEnabled(),
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      };
     }
 
     if (!this.amapTransitClient.isEnabled()) {
       this.logger.debug(
         `Skip transit neighborhood precompute because AMAP is disabled city=${normalizedPoint.city}`,
       );
-      return;
+      return {
+        pointId: normalizedPoint.id,
+        pointType: normalizedPoint.pointType,
+        city: normalizedPoint.city,
+        province: normalizedPoint.province,
+        totalEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        transitCityCandidates: normalizedPoint.transitCityCandidates,
+        transitEnabled: false,
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      };
     }
 
     const points = await this.loadCityPoints(
@@ -127,26 +216,87 @@ export class TransitCachePrecomputeService {
     );
     const others = points.filter((item) => !this.isSamePoint(item, normalizedPoint));
     if (others.length === 0) {
-      return;
+      return {
+        pointId: normalizedPoint.id,
+        pointType: normalizedPoint.pointType,
+        city: normalizedPoint.city,
+        province: normalizedPoint.province,
+        totalEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        transitCityCandidates: normalizedPoint.transitCityCandidates,
+        transitEnabled: true,
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      };
     }
 
-    await this.recomputeEdgesToDestination(
-      others,
-      normalizedPoint,
+    const allPointIds = [normalizedPoint.id, ...others.map((item) => item.id)];
+    const existingEdgeMap = await this.loadExistingEdgeMap(
+      normalizedPoint.city,
+      normalizedPoint.province,
+      allPointIds,
     );
 
-    const concurrency = 5;
+    const summary: TransitPointNeighborhoodRecomputeSummary = {
+      pointId: normalizedPoint.id,
+      pointType: normalizedPoint.pointType,
+      city: normalizedPoint.city,
+      province: normalizedPoint.province,
+      totalEdges: 0,
+      transitReadyEdges: 0,
+      transitFallbackEdges: 0,
+      transitCityCandidates: normalizedPoint.transitCityCandidates,
+      transitEnabled: true,
+      drivingReadyEdges: 0,
+      walkingReadyEdges: 0,
+      walkingMinutesReadyEdges: 0,
+    };
+
+    const inboundSummary = await this.recomputeEdgesToDestination(
+      others,
+      normalizedPoint,
+      {
+        modes: options.modes,
+        existingEdgeMap,
+        onChunkProgress: options.onChunkProgress,
+      },
+    );
+    summary.totalEdges += inboundSummary.totalEdges;
+    summary.transitReadyEdges += inboundSummary.transitReadyEdges;
+    summary.transitFallbackEdges += inboundSummary.transitFallbackEdges;
+    summary.drivingReadyEdges += inboundSummary.drivingReadyEdges;
+    summary.walkingReadyEdges += inboundSummary.walkingReadyEdges;
+    summary.walkingMinutesReadyEdges += inboundSummary.walkingMinutesReadyEdges;
+
+    const concurrency = 2;
     for (let i = 0; i < others.length; i += concurrency) {
       const destinations = others.slice(i, i + concurrency);
-      await Promise.all(
+      const chunkSummaries = await Promise.all(
         destinations.map((destination) =>
           this.recomputeEdgesToDestination(
             [normalizedPoint],
             destination,
+            {
+              modes: options.modes,
+              existingEdgeMap,
+              onChunkProgress: options.onChunkProgress,
+            },
           ),
         ),
       );
+      for (const chunkSummary of chunkSummaries) {
+        summary.totalEdges += chunkSummary.totalEdges;
+        summary.transitReadyEdges += chunkSummary.transitReadyEdges;
+        summary.transitFallbackEdges += chunkSummary.transitFallbackEdges;
+        summary.drivingReadyEdges += chunkSummary.drivingReadyEdges;
+        summary.walkingReadyEdges += chunkSummary.walkingReadyEdges;
+        summary.walkingMinutesReadyEdges += chunkSummary.walkingMinutesReadyEdges;
+      }
     }
+
+    return summary;
   }
 
   private async loadCityPoints(
@@ -175,8 +325,6 @@ export class TransitCachePrecomputeService {
         .createQueryBuilder('shopping')
         .where('shopping."isPublished" = true')
         .andWhere('LOWER(shopping.city) = LOWER(:city)', { city })
-        .andWhere('shopping.latitude IS NOT NULL')
-        .andWhere('shopping.longitude IS NOT NULL')
         .andWhere(
           normalizedProvince
             ? 'LOWER(shopping.province) = LOWER(:province)'
@@ -188,8 +336,6 @@ export class TransitCachePrecomputeService {
         .createQueryBuilder('restaurant')
         .where('restaurant."isPublished" = true')
         .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city })
-        .andWhere('restaurant.latitude IS NOT NULL')
-        .andWhere('restaurant.longitude IS NOT NULL')
         .andWhere(
           normalizedProvince
             ? 'LOWER(restaurant.province) = LOWER(:province)'
@@ -201,8 +347,6 @@ export class TransitCachePrecomputeService {
         .createQueryBuilder('hotel')
         .where('hotel."isPublished" = true')
         .andWhere('LOWER(hotel.city) = LOWER(:city)', { city })
-        .andWhere('hotel.latitude IS NOT NULL')
-        .andWhere('hotel.longitude IS NOT NULL')
         .andWhere(
           normalizedProvince
             ? 'LOWER(hotel.province) = LOWER(:province)'
@@ -214,8 +358,7 @@ export class TransitCachePrecomputeService {
         .createQueryBuilder('airport')
         .leftJoinAndSelect('airport.city', 'city')
         .leftJoinAndSelect('city.province', 'province')
-        .where('airport.latitude IS NOT NULL')
-        .andWhere('airport.longitude IS NOT NULL')
+        .where('1=1')
         .andWhere('LOWER(city.name) = LOWER(:city)', { city })
         .andWhere(
           normalizedProvince
@@ -231,55 +374,140 @@ export class TransitCachePrecomputeService {
       pointType: 'spot',
       city: item.city,
       province: item.province,
+      cityI18n: item.cityI18n,
+      transitCityCandidates: this.resolveTransitCityCandidates(
+        item.city,
+        item.cityI18n,
+      ),
       originLatitude: item.exitLatitude as number,
       originLongitude: item.exitLongitude as number,
       destinationLatitude: item.entryLatitude as number,
       destinationLongitude: item.entryLongitude as number,
     }));
 
-    const shoppingPoints: TransitPoint[] = shopping.map((item) => ({
-      id: item.id,
-      pointType: 'shopping',
-      city: item.city,
-      province: item.province,
-      originLatitude: item.latitude as number,
-      originLongitude: item.longitude as number,
-      destinationLatitude: item.latitude as number,
-      destinationLongitude: item.longitude as number,
-    }));
+    const shoppingPoints: TransitPoint[] = shopping.flatMap((item) => {
+      const origin = this.resolveCoordinatePair(
+        item.departureAnchorLatitude,
+        item.departureAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      const destinationCoordinate = this.resolveCoordinatePair(
+        item.arrivalAnchorLatitude,
+        item.arrivalAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      if (!origin || !destinationCoordinate) {
+        return [];
+      }
+      return [
+        {
+          id: item.id,
+          pointType: 'shopping',
+          city: item.city,
+          province: item.province,
+          cityI18n: item.cityI18n,
+          transitCityCandidates: this.resolveTransitCityCandidates(
+            item.city,
+            item.cityI18n,
+          ),
+          originLatitude: origin.latitude,
+          originLongitude: origin.longitude,
+          destinationLatitude: destinationCoordinate.latitude,
+          destinationLongitude: destinationCoordinate.longitude,
+        },
+      ];
+    });
 
-    const restaurantPoints: TransitPoint[] = restaurants.map((item) => ({
-      id: item.id,
-      pointType: 'restaurant',
-      city: item.city,
-      province: item.province,
-      originLatitude: item.latitude as number,
-      originLongitude: item.longitude as number,
-      destinationLatitude: item.latitude as number,
-      destinationLongitude: item.longitude as number,
-    }));
+    const restaurantPoints: TransitPoint[] = restaurants.flatMap((item) => {
+      const origin = this.resolveCoordinatePair(
+        item.departureAnchorLatitude,
+        item.departureAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      const destinationCoordinate = this.resolveCoordinatePair(
+        item.arrivalAnchorLatitude,
+        item.arrivalAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      if (!origin || !destinationCoordinate) {
+        return [];
+      }
+      return [
+        {
+          id: item.id,
+          pointType: 'restaurant',
+          city: item.city,
+          province: item.province,
+          cityI18n: item.cityI18n,
+          transitCityCandidates: this.resolveTransitCityCandidates(
+            item.city,
+            item.cityI18n,
+          ),
+          originLatitude: origin.latitude,
+          originLongitude: origin.longitude,
+          destinationLatitude: destinationCoordinate.latitude,
+          destinationLongitude: destinationCoordinate.longitude,
+        },
+      ];
+    });
 
-    const hotelPoints: TransitPoint[] = hotels.map((item) => ({
-      id: item.id,
-      pointType: 'hotel',
-      city: item.city,
-      province: item.province,
-      originLatitude: item.latitude as number,
-      originLongitude: item.longitude as number,
-      destinationLatitude: item.latitude as number,
-      destinationLongitude: item.longitude as number,
-    }));
+    const hotelPoints: TransitPoint[] = hotels.flatMap((item) => {
+      const origin = this.resolveCoordinatePair(
+        item.departureAnchorLatitude,
+        item.departureAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      const destinationCoordinate = this.resolveCoordinatePair(
+        item.arrivalAnchorLatitude,
+        item.arrivalAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      if (!origin || !destinationCoordinate) {
+        return [];
+      }
+      return [
+        {
+          id: item.id,
+          pointType: 'hotel',
+          city: item.city,
+          province: item.province,
+          cityI18n: item.cityI18n,
+          transitCityCandidates: this.resolveTransitCityCandidates(
+            item.city,
+            item.cityI18n,
+          ),
+          originLatitude: origin.latitude,
+          originLongitude: origin.longitude,
+          destinationLatitude: destinationCoordinate.latitude,
+          destinationLongitude: destinationCoordinate.longitude,
+        },
+      ];
+    });
 
-    const airportPoints: TransitPoint[] = airports.map((item) => ({
-      id: item.id,
-      pointType: 'airport',
-      city: item.city?.name ?? city,
-      province: item.city?.province?.name ?? normalizedProvince,
-      originLatitude: item.latitude as number,
-      originLongitude: item.longitude as number,
-      destinationLatitude: item.latitude as number,
-      destinationLongitude: item.longitude as number,
-    }));
+    const airportPoints: TransitPoint[] = airports.flatMap((item) => {
+      const origin = this.resolveCoordinatePair(
+        item.departureAnchorLatitude,
+        item.departureAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      const destinationCoordinate = this.resolveCoordinatePair(
+        item.arrivalAnchorLatitude,
+        item.arrivalAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
+      if (!origin || !destinationCoordinate) {
+        return [];
+      }
+      return [
+        {
+          id: item.id,
+          pointType: 'airport',
+          city: item.city?.name ?? city,
+          province: item.city?.province?.name ?? normalizedProvince,
+          cityI18n: item.city?.nameI18n ?? null,
+          transitCityCandidates: this.resolveTransitCityCandidates(
+            item.city?.name ?? city,
+            item.city?.nameI18n ?? null,
+          ),
+          originLatitude: origin.latitude,
+          originLongitude: origin.longitude,
+          destinationLatitude: destinationCoordinate.latitude,
+          destinationLongitude: destinationCoordinate.longitude,
+        },
+      ];
+    });
 
     return [
       ...spotPoints,
@@ -331,6 +559,11 @@ export class TransitCachePrecomputeService {
         pointType: point.pointType,
         city,
         province: point.province?.trim() || null,
+        cityI18n: point.cityI18n ?? null,
+        transitCityCandidates: this.resolveTransitCityCandidates(
+          city,
+          point.cityI18n ?? null,
+        ),
         originLatitude: exitLatitude,
         originLongitude: exitLongitude,
         destinationLatitude: entryLatitude,
@@ -340,7 +573,17 @@ export class TransitCachePrecomputeService {
 
     const latitude = Number(point.latitude);
     const longitude = Number(point.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const origin =
+      this.resolveCoordinatePair(
+        point.departureAnchorLatitude,
+        point.departureAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(latitude, longitude);
+    const destination =
+      this.resolveCoordinatePair(
+        point.arrivalAnchorLatitude,
+        point.arrivalAnchorLongitude,
+      ) ?? this.resolveCoordinatePair(latitude, longitude);
+    if (!origin || !destination) {
       return null;
     }
 
@@ -349,10 +592,15 @@ export class TransitCachePrecomputeService {
       pointType: point.pointType,
       city,
       province: point.province?.trim() || null,
-      originLatitude: latitude,
-      originLongitude: longitude,
-      destinationLatitude: latitude,
-      destinationLongitude: longitude,
+      cityI18n: point.cityI18n ?? null,
+      transitCityCandidates: this.resolveTransitCityCandidates(
+        city,
+        point.cityI18n ?? null,
+      ),
+      originLatitude: origin.latitude,
+      originLongitude: origin.longitude,
+      destinationLatitude: destination.latitude,
+      destinationLongitude: destination.longitude,
     };
   }
 
@@ -360,35 +608,110 @@ export class TransitCachePrecomputeService {
     return a.id === b.id && a.pointType === b.pointType;
   }
 
+  private buildEdgeKey(fromPointId: string, toPointId: string): string {
+    return `${fromPointId}->${toPointId}`;
+  }
+
+  private async loadExistingEdgeMap(
+    city: string,
+    province: string | null | undefined,
+    pointIds: string[],
+  ): Promise<Map<string, TransitCache>> {
+    const edges = await this.transitCacheService.findEdgesByCityAndPointIds(
+      city,
+      pointIds,
+      province,
+    );
+    return new Map(
+      edges.map((edge) => [
+        this.buildEdgeKey(edge.fromPointId, edge.toPointId),
+        edge,
+      ]),
+    );
+  }
+
   private async recomputeEdgesToDestination(
     origins: TransitPoint[],
     destination: TransitPoint,
-  ): Promise<void> {
+    options: TransitPrecomputeOptions & {
+      existingEdgeMap?: Map<string, TransitCache>;
+    } = {},
+  ): Promise<TransitPrecomputeChunkSummary> {
     if (origins.length === 0) {
-      return;
+      return {
+        totalEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      };
     }
+
+    const selectedModes = new Set<TransitPrecomputeMode>(
+      options.modes && options.modes.length > 0
+        ? options.modes
+        : ['transit', 'driving', 'walking'],
+    );
+    const summary: TransitPrecomputeChunkSummary = {
+      totalEdges: 0,
+      transitReadyEdges: 0,
+      transitFallbackEdges: 0,
+      drivingReadyEdges: 0,
+      walkingReadyEdges: 0,
+      walkingMinutesReadyEdges: 0,
+    };
 
     const maxOrigins = this.amapTransitClient.getDistanceMatrixMaxOrigins();
     for (let i = 0; i < origins.length; i += maxOrigins) {
       const originChunk = origins.slice(i, i + maxOrigins);
 
-      const [drivingRows, walkingRows] = await Promise.all([
-        this.fetchDistanceMatrixWithRetry({
-          origins: originChunk.map((item) => this.toOriginCoordinate(item)),
-          destination: this.toDestinationCoordinate(destination),
-          mode: 'driving',
-        }),
-        this.fetchDistanceMatrixWithRetry({
-          origins: originChunk.map((item) => this.toOriginCoordinate(item)),
-          destination: this.toDestinationCoordinate(destination),
-          mode: 'walking',
-        }),
+      const originCoordinates = originChunk.map((item) =>
+        this.toOriginCoordinate(item),
+      );
+      const destinationCoordinate = this.toDestinationCoordinate(destination);
+
+      const [drivingRows, walkingRows, transitRows] = await Promise.all([
+        selectedModes.has('driving')
+          ? this.fetchDistanceMatrixWithRetry({
+              origins: originCoordinates,
+              destination: destinationCoordinate,
+              mode: 'driving',
+            })
+          : Promise.resolve(originChunk.map(() => null)),
+        selectedModes.has('walking')
+          ? this.fetchDistanceMatrixWithRetry({
+              origins: originCoordinates,
+              destination: destinationCoordinate,
+              mode: 'walking',
+            })
+          : Promise.resolve(originChunk.map(() => null)),
+        selectedModes.has('transit')
+          ? this.fetchTransitDirectionsWithRetry({
+              origins: originCoordinates,
+              destination: destinationCoordinate,
+              city: destination.city,
+              cityCandidates: destination.transitCityCandidates,
+            })
+          : Promise.resolve(originChunk.map(() => null)),
       ]);
+
+      const chunkSummary: TransitPrecomputeChunkSummary = {
+        totalEdges: 0,
+        transitReadyEdges: 0,
+        transitFallbackEdges: 0,
+        drivingReadyEdges: 0,
+        walkingReadyEdges: 0,
+        walkingMinutesReadyEdges: 0,
+      };
 
       for (let idx = 0; idx < originChunk.length; idx += 1) {
         const origin = originChunk[idx];
+        const edgeKey = this.buildEdgeKey(origin.id, destination.id);
+        const existingEdge = options.existingEdgeMap?.get(edgeKey) ?? null;
         const driving = drivingRows[idx];
         const walking = walkingRows[idx];
+        const transit = transitRows[idx];
         const fallbackDistanceMeters = this.estimateDistanceMeters(
           this.toOriginCoordinate(origin),
           this.toDestinationCoordinate(destination),
@@ -399,34 +722,49 @@ export class TransitCachePrecomputeService {
         const fallbackWalkingMinutes = this.estimateWalkingMinutes(
           fallbackDistanceMeters,
         );
-        const drivingMinutes =
-          driving?.durationMinutes ?? fallbackDrivingMinutes;
-        const walkingMeters = walking?.distanceMeters ?? fallbackDistanceMeters;
-        const distanceMeters =
-          driving?.distanceMeters ??
-          walking?.distanceMeters ??
-          fallbackDistanceMeters;
-
-        const transitMinutesCandidates = [
-          driving?.durationMinutes,
-          walking?.durationMinutes,
-          fallbackDrivingMinutes,
-          fallbackWalkingMinutes,
-        ].filter(
-          (item): item is number =>
-            typeof item === 'number' && Number.isFinite(item) && item > 0,
+        const fallbackTransitMinutes = this.estimateTransitMinutes(
+          fallbackDistanceMeters,
         );
-        const transitMinutes =
-          transitMinutesCandidates.length > 0
-            ? Math.min(...transitMinutesCandidates)
-            : fallbackDrivingMinutes;
-        const provider =
-          driving?.durationMinutes !== null && driving?.durationMinutes !== undefined
-            ? walking?.durationMinutes !== null &&
-              walking?.durationMinutes !== undefined
-              ? 'amap'
-              : 'amap_partial'
-            : 'amap_fallback';
+
+        const drivingMinutes = selectedModes.has('driving')
+          ? driving?.durationMinutes ??
+            existingEdge?.drivingMinutes ??
+            fallbackDrivingMinutes
+          : existingEdge?.drivingMinutes ?? fallbackDrivingMinutes;
+        const walkingMinutes = selectedModes.has('walking')
+          ? walking?.durationMinutes ??
+            existingEdge?.walkingMinutes ??
+            fallbackWalkingMinutes
+          : existingEdge?.walkingMinutes ?? fallbackWalkingMinutes;
+        const walkingMeters = selectedModes.has('walking')
+          ? walking?.distanceMeters ??
+            existingEdge?.walkingMeters ??
+            fallbackDistanceMeters
+          : existingEdge?.walkingMeters ?? fallbackDistanceMeters;
+        const distanceMeters =
+          (selectedModes.has('driving') ? driving?.distanceMeters : null) ??
+          (selectedModes.has('walking') ? walking?.distanceMeters : null) ??
+          (selectedModes.has('transit') ? transit?.distanceMeters : null) ??
+          (existingEdge ? Math.round(existingEdge.distanceKm * 1000) : null) ??
+          fallbackDistanceMeters;
+        const transitMinutes = selectedModes.has('transit')
+          ? transit?.durationMinutes ??
+            existingEdge?.transitMinutes ??
+            fallbackTransitMinutes
+          : existingEdge?.transitMinutes ?? fallbackTransitMinutes;
+        const transitProviderStatus: TransitProviderStatus = selectedModes.has(
+          'transit',
+        )
+          ? transit?.durationMinutes !== null &&
+            transit?.durationMinutes !== undefined
+            ? 'ready'
+            : existingEdge?.transitProviderStatus ?? 'fallback'
+          : existingEdge?.transitProviderStatus ?? 'fallback';
+        const provider = this.resolveProvider({
+          driving: selectedModes.has('driving') ? driving : null,
+          walking: selectedModes.has('walking') ? walking : null,
+          transit: selectedModes.has('transit') ? transit : null,
+        });
 
         await this.transitCacheService.upsertEdge({
           city: destination.city,
@@ -438,14 +776,44 @@ export class TransitCachePrecomputeService {
           transitMinutes,
           drivingMinutes,
           walkingMeters,
+          walkingMinutes,
           distanceKm: Number((distanceMeters / 1000).toFixed(3)),
-          transitSummary: null,
+          transitSummary: selectedModes.has('transit')
+            ? transit?.summary ?? existingEdge?.transitSummary ?? null
+            : existingEdge?.transitSummary ?? null,
           transitSummaryI18n: null,
-          provider,
+          transitProviderStatus,
+          provider: existingEdge?.provider ?? provider,
           status: 'ready',
         });
+
+        chunkSummary.totalEdges += 1;
+        if (transitProviderStatus === 'ready') {
+          chunkSummary.transitReadyEdges += 1;
+        } else {
+          chunkSummary.transitFallbackEdges += 1;
+        }
+        if (drivingMinutes > 0) {
+          chunkSummary.drivingReadyEdges += 1;
+        }
+        if (walkingMeters > 0) {
+          chunkSummary.walkingReadyEdges += 1;
+        }
+        if (walkingMinutes > 0) {
+          chunkSummary.walkingMinutesReadyEdges += 1;
+        }
       }
+
+      summary.totalEdges += chunkSummary.totalEdges;
+      summary.transitReadyEdges += chunkSummary.transitReadyEdges;
+      summary.transitFallbackEdges += chunkSummary.transitFallbackEdges;
+      summary.drivingReadyEdges += chunkSummary.drivingReadyEdges;
+      summary.walkingReadyEdges += chunkSummary.walkingReadyEdges;
+      summary.walkingMinutesReadyEdges += chunkSummary.walkingMinutesReadyEdges;
+      await options.onChunkProgress?.(chunkSummary);
     }
+
+    return summary;
   }
 
   private async fetchDistanceMatrixWithRetry(input: {
@@ -477,6 +845,112 @@ export class TransitCachePrecomputeService {
     }));
   }
 
+  private async fetchTransitDirectionsWithRetry(input: {
+    origins: AmapCoordinate[];
+    destination: AmapCoordinate;
+    city?: string | null;
+    cityCandidates?: string[];
+  }): Promise<Array<AmapDirectionResult | null>> {
+    let attempt = 0;
+    while (attempt <= TransitCachePrecomputeService.MATRIX_REQUEST_RETRIES) {
+      try {
+        return await this.amapTransitClient.getTransitDirectionsToDestination({
+          origins: input.origins,
+          destination: input.destination,
+          city: input.city,
+          cityCandidates: input.cityCandidates,
+        });
+      } catch (error) {
+        const isLast =
+          attempt === TransitCachePrecomputeService.MATRIX_REQUEST_RETRIES;
+        this.logger.warn(
+          `Amap transit direction request error attempt=${attempt + 1}: ${(error as Error).message}`,
+        );
+        if (isLast) {
+          break;
+        }
+        await this.delay((attempt + 1) * 300);
+      }
+      attempt += 1;
+    }
+
+    return input.origins.map(() => null);
+  }
+
+  private resolveProvider(input: {
+    driving?: AmapMatrixItem | null;
+    walking?: AmapMatrixItem | null;
+    transit?: AmapDirectionResult | null;
+  }): string {
+    const hasDriving =
+      input.driving?.durationMinutes !== null &&
+      input.driving?.durationMinutes !== undefined;
+    const hasWalking =
+      input.walking?.durationMinutes !== null &&
+      input.walking?.durationMinutes !== undefined;
+    const hasTransit =
+      input.transit?.durationMinutes !== null &&
+      input.transit?.durationMinutes !== undefined;
+
+    if (hasDriving && hasWalking && hasTransit) {
+      return 'amap';
+    }
+    if (hasDriving || hasWalking || hasTransit) {
+      return 'amap_partial';
+    }
+    return 'fallback';
+  }
+
+  private resolveCoordinatePair(
+    latitude: number | null | undefined,
+    longitude: number | null | undefined,
+  ): AmapCoordinate | null {
+    if (
+      typeof latitude === 'number' &&
+      Number.isFinite(latitude) &&
+      typeof longitude === 'number' &&
+      Number.isFinite(longitude)
+    ) {
+      return {
+        latitude,
+        longitude,
+      };
+    }
+    return null;
+  }
+
+  private resolveTransitCityCandidates(
+    city: string,
+    cityI18n?: Record<string, string | undefined> | null,
+  ): string[] {
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+
+    const push = (value?: string | null) => {
+      const trimmed = value?.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        return;
+      }
+      seen.add(trimmed);
+      normalized.push(trimmed);
+
+      if (/市$/.test(trimmed)) {
+        const withoutSuffix = trimmed.replace(/市$/, '');
+        if (withoutSuffix && !seen.has(withoutSuffix)) {
+          seen.add(withoutSuffix);
+          normalized.push(withoutSuffix);
+        }
+      }
+    };
+
+    push(cityI18n?.['zh-CN']);
+    push(city);
+    push(cityI18n?.['en-US']);
+    push(cityI18n?.['mn-MN']);
+
+    return normalized;
+  }
+
   private estimateDistanceMeters(a: AmapCoordinate, b: AmapCoordinate): number {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const lat1 = toRad(a.latitude);
@@ -500,6 +974,11 @@ export class TransitCachePrecomputeService {
   private estimateWalkingMinutes(distanceMeters: number): number {
     const distanceKm = distanceMeters / 1000;
     return Math.max(1, Math.round((distanceKm / 4.5) * 60));
+  }
+
+  private estimateTransitMinutes(distanceMeters: number): number {
+    const distanceKm = distanceMeters / 1000;
+    return Math.max(4, Math.round((distanceKm / 18) * 60 + 12));
   }
 
   private async delay(ms: number): Promise<void> {

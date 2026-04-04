@@ -1,9 +1,14 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsBoolean,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsNumber,
   IsOptional,
+  IsArray,
+  IsIn,
   IsString,
   Matches,
   Max,
@@ -27,6 +32,26 @@ export class CreateHotelDto extends BasePlaceCreateDto {
   foreignerFriendly?: boolean;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  arrivalAnchorLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  arrivalAnchorLongitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  departureAnchorLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  departureAnchorLongitude?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(20)
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
@@ -47,6 +72,18 @@ export class CreateHotelDto extends BasePlaceCreateDto {
   )
   @Matches(/^https?:\/\/\S+$/i)
   bookingUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['available', 'limited', 'sold_out', 'unknown'])
+  bookingStatus?: 'available' | 'limited' | 'sold_out' | 'unknown';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(366)
+  @IsString({ each: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { each: true })
+  bookableDatesJson?: string[];
 
   @IsOptional()
   @Type(() => Number)

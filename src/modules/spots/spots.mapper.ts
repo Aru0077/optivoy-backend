@@ -17,8 +17,10 @@ import {
   toNullableNumber,
 } from '../../common/utils/content-i18n.util';
 import {
-  normalizeWeekdays,
-} from './spots.shared';
+  normalizeOpeningHours,
+  normalizeQueueProfile,
+  normalizeSpecialDates,
+} from '../../common/utils/planning-metadata.util';
 
 export function mapSpot(spot: Spot, lang: SpotLang): SpotView {
   const nameI18n = ensureTextI18n(
@@ -73,12 +75,16 @@ export function mapSpot(spot: Spot, lang: SpotLang): SpotView {
     guideI18n,
     notice: resolveNotice(noticeI18n, lang),
     noticeI18n,
+    openingHoursJson: normalizeOpeningHours(spot.openingHoursJson),
+    specialClosureDates: normalizeSpecialDates(spot.specialClosureDates),
+    lastEntryTime: spot.lastEntryTime?.trim() || null,
     suggestedDurationMinutes: spot.suggestedDurationMinutes ?? 240,
     reservationRequired: Boolean(spot.reservationRequired),
     reservationUrl: spot.reservationUrl?.trim() || null,
     reservationNote: resolveReservationNote(reservationNoteI18n, lang),
     reservationNoteI18n,
-    closedWeekdays: normalizeWeekdays(spot.closedWeekdays ?? []),
+    queueProfileJson: normalizeQueueProfile(spot.queueProfileJson),
+    hasFoodCourt: spot.hasFoodCourt === true,
     ticketPriceMinCny: toNullableNumber(spot.ticketPriceMinCny),
     ticketPriceMaxCny: toNullableNumber(spot.ticketPriceMaxCny),
     isPublished: spot.isPublished,
@@ -140,12 +146,16 @@ export function mapRawSpot(row: SpotRawRow, lang: SpotLang): SpotView {
     guideI18n,
     notice: resolveNotice(noticeI18n, lang),
     noticeI18n,
+    openingHoursJson: normalizeOpeningHours(row.openingHoursJson),
+    specialClosureDates: normalizeSpecialDates(row.specialClosureDates),
+    lastEntryTime: row.lastEntryTime?.trim() || null,
     suggestedDurationMinutes: Number(row.suggestedDurationMinutes ?? 240),
     reservationRequired: Boolean(row.reservationRequired),
     reservationUrl: row.reservationUrl?.trim() || null,
     reservationNote: resolveReservationNote(reservationNoteI18n, lang),
     reservationNoteI18n,
-    closedWeekdays: normalizeWeekdays(row.closedWeekdays ?? []),
+    queueProfileJson: normalizeQueueProfile(row.queueProfileJson),
+    hasFoodCourt: row.hasFoodCourt === true,
     ticketPriceMinCny: toNullableNumber(row.ticketPriceMinCny),
     ticketPriceMaxCny: toNullableNumber(row.ticketPriceMaxCny),
     isPublished: row.isPublished,
