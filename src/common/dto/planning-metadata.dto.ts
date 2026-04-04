@@ -68,9 +68,3 @@ export class BestVisitWindowDto extends PlanningTimeRangeDto {
   @MaxLength(40)
   tag?: string;
 }
-
-export class MealTimeWindowDto extends PlanningTimeRangeDto {
-  @IsString()
-  @IsIn(['breakfast', 'lunch', 'dinner', 'night_snack'])
-  mealSlot: 'breakfast' | 'lunch' | 'dinner' | 'night_snack';
-}

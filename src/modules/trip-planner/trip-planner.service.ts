@@ -18,20 +18,15 @@ import {
 } from '../../common/utils/content-i18n.util';
 import {
   latestClosingTime,
-  normalizeBookingStatus,
-  normalizeMealTimeWindows,
   normalizeOpeningHours,
   normalizeQueueProfile,
   normalizeSpecialDates,
-  type BookingStatus,
-  type MealTimeWindow,
   type OpeningHoursRule,
   type QueueProfile,
 } from '../../common/utils/planning-metadata.util';
 import { PlannerConfig } from '../../config/planner.config';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
 import { LocationAirport } from '../locations/entities/location-airport.entity';
-import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import {
@@ -52,7 +47,11 @@ import {
 } from './optimizer.client';
 import { TripPlannerCacheService } from './trip-planner-cache.service';
 import {
+  GeneratedTripPoint,
   GeneratedTripResult,
+  GeneratedTripSequenceItem,
+  GeneratedTripHotelStop,
+  HotelBookingLink,
   PlannerHotelCandidate,
   PlannerLang,
   PlannerPointView,
@@ -68,7 +67,7 @@ interface GroupedCityRow {
 
 interface GeneratedPlannerPoint {
   id: string;
-  pointType: 'spot' | 'shopping' | 'restaurant';
+  pointType: 'spot' | 'shopping';
   name: string;
   suggestedDurationMinutes: number;
   guideI18n: Record<string, string | undefined>;
@@ -87,8 +86,16 @@ interface GeneratedPlannerPoint {
   reservationRequired: boolean;
   queueProfileJson: QueueProfile | null;
   hasFoodCourt: boolean;
-  mealSlots: string[];
-  mealTimeWindowsJson: MealTimeWindow[];
+}
+
+interface ResolvedHotelBookingSegment extends HotelBookingLink {
+  itineraryStartDate: string;
+  itineraryEndDate: string;
+}
+
+interface OptimizerDayDiagnosticsView {
+  lunchBreakMinutes?: number;
+  lunchBreakBeforePointId?: string | null;
 }
 
 interface PlannerNodeCoordinate {
@@ -101,19 +108,11 @@ interface PlannerGenerationContext {
   province: string;
   selectedPoints: GeneratedPlannerPoint[];
   hotelCandidates: PlannerHotelCandidate[];
-  arrivalAirport: LocationAirport | null;
-  departureAirport: LocationAirport | null;
   allNodeIds: string[];
   cacheEdges: TransitCache[];
   matrixRows: OptimizerDistanceMatrixRow[];
 }
 
-const RESTAURANT_MEAL_SLOTS = new Set<string>([
-  'breakfast',
-  'lunch',
-  'dinner',
-  'night_snack',
-]);
 const WALKING_PRIORITY_METERS = 1500;
 
 @Injectable()
@@ -125,8 +124,6 @@ export class TripPlannerService {
     private readonly spotRepository: Repository<Spot>,
     @InjectRepository(ShoppingPlace)
     private readonly shoppingRepository: Repository<ShoppingPlace>,
-    @InjectRepository(RestaurantPlace)
-    private readonly restaurantRepository: Repository<RestaurantPlace>,
     @InjectRepository(HotelPlace)
     private readonly hotelRepository: Repository<HotelPlace>,
     @InjectRepository(LocationAirport)
@@ -148,7 +145,7 @@ export class TripPlannerService {
   }> {
     const cacheKey = `trip-cities:${query.limit}:${query.offset}`;
     return this.tripPlannerCacheService.remember(cacheKey, async () => {
-      const [spotGroups, shoppingGroups, restaurantGroups] = await Promise.all([
+      const [spotGroups, shoppingGroups] = await Promise.all([
         this.spotRepository
           .createQueryBuilder('spot')
           .select('spot.province', 'province')
@@ -171,17 +168,6 @@ export class TripPlannerService {
           .groupBy('shopping.province')
           .addGroupBy('shopping.city')
           .getRawMany<GroupedCityRow>(),
-        this.restaurantRepository
-          .createQueryBuilder('restaurant')
-          .select('restaurant.province', 'province')
-          .addSelect('restaurant.city', 'city')
-          .addSelect('COUNT(restaurant.id)', 'count')
-          .where('restaurant."isPublished" = true')
-          .andWhere("restaurant.province <> ''")
-          .andWhere("restaurant.city <> ''")
-          .groupBy('restaurant.province')
-          .addGroupBy('restaurant.city')
-          .getRawMany<GroupedCityRow>(),
       ]);
 
       const merged = new Map<string, TripCityItem>();
@@ -190,7 +176,6 @@ export class TripPlannerService {
         city: string,
         spotsCount: number,
         shoppingCount: number,
-        restaurantsCount: number,
       ) => {
         const key = `${province}\u0000${city}`;
         const current = merged.get(key);
@@ -200,13 +185,11 @@ export class TripPlannerService {
             city,
             spotsCount,
             shoppingCount,
-            restaurantsCount,
           });
           return;
         }
         current.spotsCount += spotsCount;
         current.shoppingCount += shoppingCount;
-        current.restaurantsCount += restaurantsCount;
       };
 
       for (const row of spotGroups) {
@@ -214,7 +197,6 @@ export class TripPlannerService {
           row.province.trim(),
           row.city.trim(),
           parseInt(row.count ?? '0', 10),
-          0,
           0,
         );
       }
@@ -224,22 +206,12 @@ export class TripPlannerService {
           row.city.trim(),
           0,
           parseInt(row.count ?? '0', 10),
-          0,
-        );
-      }
-      for (const row of restaurantGroups) {
-        mergeItem(
-          row.province.trim(),
-          row.city.trim(),
-          0,
-          0,
-          parseInt(row.count ?? '0', 10),
         );
       }
 
       const ordered = Array.from(merged.values()).sort((a, b) => {
-        const aTotal = a.spotsCount + a.shoppingCount + a.restaurantsCount;
-        const bTotal = b.spotsCount + b.shoppingCount + b.restaurantsCount;
+        const aTotal = a.spotsCount + a.shoppingCount;
+        const bTotal = b.spotsCount + b.shoppingCount;
         if (aTotal !== bTotal) {
           return bTotal - aTotal;
         }
@@ -265,7 +237,6 @@ export class TripPlannerService {
     total: number;
     spotsCount: number;
     shoppingCount: number;
-    restaurantsCount: number;
     items: PlannerPointView[];
     outboundFlight: string;
   }> {
@@ -275,10 +246,9 @@ export class TripPlannerService {
     const cacheKey = `trip-city-points:${city.toLowerCase()}:${(province ?? '').toLowerCase()}:${lang}`;
 
     return this.tripPlannerCacheService.remember(cacheKey, async () => {
-      const [spots, shopping, restaurants] = await Promise.all([
+      const [spots, shopping] = await Promise.all([
         this.querySpotsByCity(city, province),
         this.queryShoppingByCity(city, province),
-        this.queryRestaurantsByCity(city, province),
       ]);
 
       const mappedSpots = spots.map((item) =>
@@ -287,22 +257,20 @@ export class TripPlannerService {
       const mappedShopping = shopping.map((item) =>
         this.mapShoppingToPlannerPoint(item, lang),
       );
-      const mappedRestaurants = restaurants.map((item) =>
-        this.mapRestaurantToPlannerPoint(item, lang),
-      );
-
-      const items = [...mappedSpots, ...mappedShopping, ...mappedRestaurants].sort(
-        (a, b) => {
+      const items = [...mappedSpots, ...mappedShopping].sort((a, b) => {
         if (a.pointType !== b.pointType) {
           return a.pointType.localeCompare(b.pointType);
         }
         return a.name.localeCompare(b.name);
-        },
-      );
+      });
 
       const resolvedProvince =
         province ??
         this.inferSingleProvince(items.map((item) => item.province));
+      const airportCode = await this.resolveCityAirportCode(
+        city,
+        resolvedProvince ?? null,
+      );
 
       return {
         city,
@@ -310,14 +278,8 @@ export class TripPlannerService {
         total: items.length,
         spotsCount: mappedSpots.length,
         shoppingCount: mappedShopping.length,
-        restaurantsCount: mappedRestaurants.length,
         items,
-        outboundFlight: this.buildFlightLink({
-          direction: 'outbound',
-          city,
-          province: resolvedProvince ?? '',
-          dateTime: null,
-        }),
+        outboundFlight: this.buildFlightLink('UBN', airportCode),
       };
     });
   }
@@ -330,38 +292,21 @@ export class TripPlannerService {
     const resolvedProvince = context.province;
     const selectedPoints = context.selectedPoints;
     const hotelCandidates = context.hotelCandidates;
-    const arrivalAirport = context.arrivalAirport;
-    const departureAirport = context.departureAirport;
     const cacheEdges = context.cacheEdges;
     const matrixRows = context.matrixRows;
+    const cityAirportCode = await this.resolveCityAirportCode(
+      city,
+      resolvedProvince,
+    );
 
     let solverResult: OptimizerSolveResponse;
     try {
       solverResult = await this.optimizerClient.solve({
         city,
         province: resolvedProvince,
-        arrivalAirportCode: dto.arrivalAirportCode,
-        departureAirportCode: dto.departureAirportCode,
-        arrivalAirportId: arrivalAirport?.id,
-        departureAirportId: departureAirport?.id,
-        arrivalAirport: arrivalAirport
-          ? this.resolveAirportCoordinateForSolver(arrivalAirport, 'arrival') ??
-            undefined
-          : undefined,
-        departureAirport: departureAirport
-          ? this.resolveAirportCoordinateForSolver(
-              departureAirport,
-              'departure',
-            ) ?? undefined
-          : undefined,
-        arrivalAirportBufferMinutes:
-          arrivalAirport?.arrivalBufferMinutes ?? undefined,
-        departureAirportBufferMinutes:
-          departureAirport?.departureBufferMinutes ?? undefined,
-        arrivalDateTime: dto.arrivalDateTime,
-        airportBufferMinutes: dto.arrivalBufferMinutes,
+        startDate: dto.startDate,
         paceMode: dto.paceMode,
-        hotelMode: dto.hotelMode,
+        hotelStrategy: dto.hotelStrategy,
         mealPolicy: dto.mealPolicy ?? 'auto',
         points: selectedPoints.map((item) => ({
           id: item.id,
@@ -382,8 +327,6 @@ export class TripPlannerService {
           lastEntryTime: item.lastEntryTime,
           hasFoodCourt: item.hasFoodCourt,
           queueProfileJson: item.queueProfileJson,
-          mealSlots: item.mealSlots,
-          mealTimeWindowsJson: item.mealTimeWindowsJson,
         })),
         hotels: hotelCandidates.map((item) => ({
           id: item.id,
@@ -397,15 +340,12 @@ export class TripPlannerService {
             item.departureAnchorLatitude,
             item.departureAnchorLongitude,
           ),
-          foreignerFriendly: item.foreignerFriendly,
           checkInTime: item.checkInTime,
           checkOutTime: item.checkOutTime,
-          bookingStatus: item.bookingStatus,
         })),
         distanceMatrix: {
           rows: matrixRows,
         },
-        maxDays: 14,
         transportPreference: 'mixed',
         maxIntradayDrivingMinutes: 120,
       });
@@ -434,48 +374,45 @@ export class TripPlannerService {
     const nodeCoordinateMap = this.buildNodeCoordinateMap({
       points: selectedPoints,
       hotels: hotelCandidates,
-      arrivalAirport,
-      departureAirport,
     });
     const transitDirectionCache = new Map<string, Promise<AmapDirectionResult | null>>();
+    const endDate = this.computeEndDate(dto.startDate, solverResult.tripDays);
+    const hotelBookingSegments = this.buildHotelBookingSegments(
+      solverResult.days,
+      hotelCandidates,
+      dto.startDate,
+      city,
+      resolvedProvince,
+    );
+    const hotelBookingLinks = this.buildHotelBookingLinks(hotelBookingSegments);
+    const optimizerDayDiagnostics = this.buildOptimizerDayDiagnosticsMap(
+      solverResult.diagnostics,
+    );
     const days = await this.buildGeneratedDays({
       city,
       province: resolvedProvince,
       days: solverResult.days,
       pointById,
       hotelById,
+      hotelBookingSegments,
+      optimizerDayDiagnostics,
       edgeMap,
-      arrivalAirportId: arrivalAirport?.id ?? null,
       nodeCoordinateMap,
       transitDirectionCache,
     });
 
-    const returnFlightDateTime = this.buildReturnFlightDateTime(
-      dto.arrivalDateTime,
-      solverResult.tripDays,
-    );
-
     return {
       city,
       province: resolvedProvince,
-      arrivalDateTime: dto.arrivalDateTime,
-      arrivalBufferMinutes: dto.arrivalBufferMinutes,
+      startDate: dto.startDate,
+      endDate,
       tripDays: solverResult.tripDays,
       solverStatus: solverResult.solverStatus,
       days,
+      hotelBookingLinks,
       links: {
-        outboundFlight: this.buildFlightLink({
-          direction: 'outbound',
-          city,
-          province: resolvedProvince,
-          dateTime: dto.arrivalDateTime,
-        }),
-        returnFlight: this.buildFlightLink({
-          direction: 'return',
-          city,
-          province: resolvedProvince,
-          dateTime: returnFlightDateTime,
-        }),
+        outboundFlight: this.buildFlightLink('UBN', cityAirportCode),
+        returnFlight: this.buildFlightLink(cityAirportCode, 'UBN'),
       },
       optimizerDiagnostics: solverResult.diagnostics,
     };
@@ -521,11 +458,6 @@ export class TripPlannerService {
     }
 
     const missingUndirected = Math.max(0, expectedUndirected - readyUndirected);
-    const airportNodeCount = new Set(
-      [context.arrivalAirport?.id, context.departureAirport?.id].filter(
-        (item): item is string => typeof item === 'string' && item.length > 0,
-      ),
-    ).size;
 
     return {
       city: context.city,
@@ -533,7 +465,6 @@ export class TripPlannerService {
       nodeCount,
       pointCount: context.selectedPoints.length,
       hotelCount: context.hotelCandidates.length,
-      airportCount: airportNodeCount,
       directed: {
         expected: expectedDirected,
         ready: readyDirected,
@@ -570,10 +501,9 @@ export class TripPlannerService {
       });
     }
 
-    const [spots, shopping, restaurants] = await Promise.all([
+    const [spots, shopping] = await Promise.all([
       this.querySpotsByIds(selectedPointIds),
       this.queryShoppingByIds(selectedPointIds),
-      this.queryRestaurantsByIds(selectedPointIds),
     ]);
 
     const selectedPointMap = new Map<string, GeneratedPlannerPoint>();
@@ -586,13 +516,6 @@ export class TripPlannerService {
         this.mapShoppingToGeneratedPlannerPoint(item),
       );
     }
-    for (const item of restaurants) {
-      selectedPointMap.set(
-        item.id,
-        this.mapRestaurantToGeneratedPlannerPoint(item),
-      );
-    }
-
     if (selectedPointMap.size !== selectedPointIds.length) {
       const missingIds = selectedPointIds.filter((id) => !selectedPointMap.has(id));
       throw new NotFoundException({
@@ -635,34 +558,19 @@ export class TripPlannerService {
         message: 'No published hotels found in target city.',
       });
     }
-    const hotelCandidates = hotels
-      .map((item) => this.mapHotelCandidate(item))
-      .filter(
-        (item) =>
-          item.foreignerFriendly &&
-          item.bookingStatus !== 'sold_out',
-      );
+    const hotelCandidates = hotels.map((item) => this.mapHotelCandidate(item));
     if (hotelCandidates.length === 0) {
       throw new NotFoundException({
         code: 'TRIP_PLANNER_HOTELS_NOT_AVAILABLE',
         message:
-          'No published foreigner-friendly hotels with available booking status found in target city.',
+          'No published hotels with valid planning candidates found in target city.',
       });
     }
     this.assertSolverReadyHotels(hotelCandidates);
 
-    const [arrivalAirport, departureAirport] = await Promise.all([
-      this.resolveAirportByCode(dto.arrivalAirportCode, city, resolvedProvince),
-      this.resolveAirportByCode(dto.departureAirportCode, city, resolvedProvince),
-    ]);
-    this.assertSolverReadyAirport(arrivalAirport, 'arrivalAirportCode');
-    this.assertSolverReadyAirport(departureAirport, 'departureAirportCode');
-
     const allNodeIds = [
       ...selectedPoints.map((item) => item.id),
       ...hotelCandidates.map((item) => item.id),
-      ...(arrivalAirport ? [arrivalAirport.id] : []),
-      ...(departureAirport ? [departureAirport.id] : []),
     ];
 
     const cacheEdges = await this.transitCacheService.findReadyEdgesByCityAndPointIds(
@@ -675,8 +583,6 @@ export class TripPlannerService {
       province: resolvedProvince,
       selectedPoints,
       hotelCandidates,
-      arrivalAirport,
-      departureAirport,
       allNodeIds,
       cacheEdges,
       matrixRows: cacheEdges.map((edge) => this.mapTransitEdgeToMatrixRow(edge)),
@@ -733,27 +639,6 @@ export class TripPlannerService {
       .getMany();
   }
 
-  private async queryRestaurantsByCity(
-    city: string,
-    province?: string | null,
-  ): Promise<RestaurantPlace[]> {
-    const qb = this.restaurantRepository
-      .createQueryBuilder('restaurant')
-      .where('restaurant."isPublished" = true')
-      .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city });
-
-    if (province) {
-      qb.andWhere('LOWER(restaurant.province) = LOWER(:province)', {
-        province,
-      });
-    }
-
-    return qb
-      .orderBy('restaurant."createdAt"', 'DESC')
-      .addOrderBy('restaurant.name', 'ASC')
-      .getMany();
-  }
-
   private async queryHotelsByCity(
     city: string,
     province: string,
@@ -792,51 +677,37 @@ export class TripPlannerService {
     });
   }
 
-  private async queryRestaurantsByIds(
-    ids: string[],
-  ): Promise<RestaurantPlace[]> {
-    if (ids.length === 0) {
-      return [];
-    }
-    return this.restaurantRepository.find({
-      where: {
-        id: In(ids),
-        isPublished: true,
-      },
-    });
-  }
-
-  private async resolveAirportByCode(
-    airportCode: string | undefined,
+  private async resolveCityAirportCode(
     city: string,
-    province: string,
-  ): Promise<LocationAirport | null> {
-    if (!airportCode) {
-      return null;
-    }
-    const normalizedCode = airportCode.trim().toUpperCase();
-    if (!normalizedCode) {
-      return null;
-    }
-
-    const airport = await this.airportRepository
+    province: string | null,
+  ): Promise<string> {
+    const airportQb = this.airportRepository
       .createQueryBuilder('airport')
       .leftJoinAndSelect('airport.city', 'city')
       .leftJoinAndSelect('city.province', 'province')
-      .where('airport."airportCode" = :airportCode', {
-        airportCode: normalizedCode,
-      })
-      .andWhere('LOWER(city.name) = LOWER(:city)', { city })
-      .andWhere('LOWER(province.name) = LOWER(:province)', { province })
-      .getOne();
+      .where('LOWER(city.name) = LOWER(:city)', { city })
+      .orderBy('airport."airportCode"', 'ASC');
 
-    if (!airport) {
-      throw new NotFoundException({
-        code: 'TRIP_PLANNER_AIRPORT_NOT_FOUND',
-        message: `Airport code ${normalizedCode} is not found in target city.`,
+    if (province) {
+      airportQb.andWhere('LOWER(province.name) = LOWER(:province)', {
+        province,
       });
     }
-    return airport;
+
+    const airport = await airportQb.getOne();
+
+    if (!airport?.airportCode?.trim()) {
+      throw new NotFoundException({
+        code: 'TRIP_PLANNER_CITY_AIRPORT_NOT_FOUND',
+        message: 'No airport code is configured for the target city.',
+        details: {
+          city,
+          province,
+        },
+      });
+    }
+
+    return airport.airportCode.trim().toUpperCase();
   }
 
   private mapSpotToGeneratedPlannerPoint(spot: Spot): GeneratedPlannerPoint {
@@ -868,8 +739,6 @@ export class TripPlannerService {
       reservationRequired: spot.reservationRequired === true,
       queueProfileJson: normalizeQueueProfile(spot.queueProfileJson),
       hasFoodCourt: spot.hasFoodCourt === true,
-      mealSlots: [],
-      mealTimeWindowsJson: [],
     };
   }
 
@@ -922,61 +791,6 @@ export class TripPlannerService {
       reservationRequired: false,
       queueProfileJson: null,
       hasFoodCourt: item.hasFoodCourt === true,
-      mealSlots: [],
-      mealTimeWindowsJson: [],
-    };
-  }
-
-  private mapRestaurantToGeneratedPlannerPoint(
-    item: RestaurantPlace,
-  ): GeneratedPlannerPoint {
-    const arrivalCoordinate = this.resolveCoordinatePair(
-      item.arrivalAnchorLatitude,
-      item.arrivalAnchorLongitude,
-    );
-    const departureCoordinate = this.resolveCoordinatePair(
-      item.departureAnchorLatitude,
-      item.departureAnchorLongitude,
-    );
-    const fallbackCoordinate = this.resolveCoordinatePair(
-      item.latitude,
-      item.longitude,
-    );
-    return {
-      id: item.id,
-      pointType: 'restaurant',
-      name: ensureTextI18n(item.nameI18n, item.name)['zh-CN'],
-      suggestedDurationMinutes: item.suggestedDurationMinutes,
-      guideI18n: ensureGuideI18n(item.guideI18n),
-      coverImageUrl: item.coverImageUrl,
-      city: item.city,
-      province: item.province,
-      arrivalAnchorLatitude:
-        arrivalCoordinate?.latitude ?? fallbackCoordinate?.latitude ?? null,
-      arrivalAnchorLongitude:
-        arrivalCoordinate?.longitude ?? fallbackCoordinate?.longitude ?? null,
-      departureAnchorLatitude:
-        departureCoordinate?.latitude ?? fallbackCoordinate?.latitude ?? null,
-      departureAnchorLongitude:
-        departureCoordinate?.longitude ?? fallbackCoordinate?.longitude ?? null,
-      latitude:
-        arrivalCoordinate?.latitude ??
-        departureCoordinate?.latitude ??
-        fallbackCoordinate?.latitude ??
-        null,
-      longitude:
-        arrivalCoordinate?.longitude ??
-        departureCoordinate?.longitude ??
-        fallbackCoordinate?.longitude ??
-        null,
-      openingHoursJson: [],
-      specialClosureDates: [],
-      lastEntryTime: null,
-      reservationRequired: item.reservationRequired === true,
-      queueProfileJson: normalizeQueueProfile(item.queueProfileJson),
-      hasFoodCourt: false,
-      mealSlots: normalizeMealSlots(item.mealSlots),
-      mealTimeWindowsJson: normalizeMealTimeWindows(item.mealTimeWindowsJson),
     };
   }
 
@@ -1020,27 +834,6 @@ export class TripPlannerService {
     return coordinate;
   }
 
-  private resolveAirportCoordinateForSolver(
-    airport: LocationAirport,
-    mode: 'arrival' | 'departure',
-  ): PlannerNodeCoordinate | null {
-    if (mode === 'arrival') {
-      return (
-        this.resolveCoordinatePair(
-          airport.arrivalAnchorLatitude,
-          airport.arrivalAnchorLongitude,
-        ) ?? this.resolveCoordinatePair(airport.latitude, airport.longitude)
-      );
-    }
-
-    return (
-      this.resolveCoordinatePair(
-        airport.departureAnchorLatitude,
-        airport.departureAnchorLongitude,
-      ) ?? this.resolveCoordinatePair(airport.latitude, airport.longitude)
-    );
-  }
-
   private mapTransitEdgeToMatrixRow(edge: TransitCache): OptimizerDistanceMatrixRow {
     return {
       fromPointId: edge.fromPointId,
@@ -1066,8 +859,6 @@ export class TripPlannerService {
   private buildNodeCoordinateMap(params: {
     points: GeneratedPlannerPoint[];
     hotels: PlannerHotelCandidate[];
-    arrivalAirport: LocationAirport | null;
-    departureAirport: LocationAirport | null;
   }): Map<string, PlannerNodeCoordinate> {
     const map = new Map<string, PlannerNodeCoordinate>();
 
@@ -1097,25 +888,6 @@ export class TripPlannerService {
       }
     }
 
-    if (params.arrivalAirport) {
-      const coordinate = this.resolveAirportCoordinateForSolver(
-        params.arrivalAirport,
-        'arrival',
-      );
-      if (coordinate) {
-        map.set(params.arrivalAirport.id, coordinate);
-      }
-    }
-    if (params.departureAirport) {
-      const coordinate = this.resolveAirportCoordinateForSolver(
-        params.departureAirport,
-        'departure',
-      );
-      if (coordinate) {
-        map.set(params.departureAirport.id, coordinate);
-      }
-    }
-
     return map;
   }
 
@@ -1125,8 +897,9 @@ export class TripPlannerService {
     days: OptimizerSolveResponse['days'];
     pointById: Map<string, GeneratedPlannerPoint>;
     hotelById: Map<string, PlannerHotelCandidate>;
+    hotelBookingSegments: ResolvedHotelBookingSegment[];
+    optimizerDayDiagnostics: Map<number, OptimizerDayDiagnosticsView>;
     edgeMap: Map<string, TransitCache>;
-    arrivalAirportId: string | null;
     nodeCoordinateMap: Map<string, PlannerNodeCoordinate>;
     transitDirectionCache: Map<string, Promise<AmapDirectionResult | null>>;
   }): Promise<GeneratedTripResult['days']> {
@@ -1149,13 +922,23 @@ export class TripPlannerService {
         dayPointIds: day.pointIds,
         currentHotelId: day.hotelId,
         previousHotelId,
-        arrivalAirportId: dayIndex === 0 ? params.arrivalAirportId : null,
         edgeMap: params.edgeMap,
         nodeCoordinateMap: params.nodeCoordinateMap,
         transitDirectionCache: params.transitDirectionCache,
       });
+      const bookingLink = this.resolveDayHotelBookingLink(
+        params.hotelBookingSegments,
+        day.hotelId,
+        day.date,
+      );
+      const startHotelBookingLink = this.resolveDayStartHotelBookingLink(
+        params.hotelBookingSegments,
+        previousHotelId,
+        day.hotelId,
+        day.date,
+      );
 
-      const points = day.pointIds.map((pointId) => {
+      const pointViews = day.pointIds.map((pointId) => {
         const point = params.pointById.get(pointId);
         if (!point) {
           throw new ServiceUnavailableException({
@@ -1169,9 +952,34 @@ export class TripPlannerService {
           name: point.name,
           suggestedDurationMinutes: point.suggestedDurationMinutes,
           guideI18n: point.guideI18n,
-          mealSlots: point.mealSlots.length > 0 ? point.mealSlots : undefined,
           coverImageUrl: point.coverImageUrl,
+          hasFoodCourt: point.hasFoodCourt,
+          lunchIncluded: false,
+          lunchNote: null,
         };
+      });
+      const lunchArrangement = this.buildLunchArrangement(pointViews);
+      const sequence = this.buildDaySequence({
+        startHotel: {
+          id: startHotelBookingLink.hotelId,
+          name:
+            params.hotelById.get(startHotelBookingLink.hotelId)?.name ??
+            startHotelBookingLink.hotelName,
+          checkInDate: startHotelBookingLink.checkInDate,
+          checkOutDate: startHotelBookingLink.checkOutDate,
+        },
+        endHotel: {
+          id: hotel.id,
+          name: hotel.name,
+          checkInDate: bookingLink.checkInDate,
+          checkOutDate: bookingLink.checkOutDate,
+        },
+        legs,
+        points: lunchArrangement.points,
+        lunchBreak: lunchArrangement.lunchBreak,
+        lunchBreakBeforePointId:
+          params.optimizerDayDiagnostics.get(day.dayNumber)?.lunchBreakBeforePointId ??
+          null,
       });
 
       result.push({
@@ -1180,17 +988,13 @@ export class TripPlannerService {
         hotel: {
           id: hotel.id,
           name: hotel.name,
-          bookingUrl:
-            hotel.bookingUrl ??
-            this.buildHotelLink({
-              city: params.city,
-              province: params.province,
-              checkInDate: day.date,
-              checkOutDate: this.addDaysToIsoDate(day.date, 1),
-            }),
+          checkInDate: bookingLink.checkInDate,
+          checkOutDate: bookingLink.checkOutDate,
         },
+        sequence,
+        lunchBreak: lunchArrangement.lunchBreak,
         legs,
-        points,
+        points: lunchArrangement.points,
       });
     }
 
@@ -1202,7 +1006,6 @@ export class TripPlannerService {
     dayPointIds: string[];
     currentHotelId: string;
     previousHotelId: string | null;
-    arrivalAirportId: string | null;
     edgeMap: Map<string, TransitCache>;
     nodeCoordinateMap: Map<string, PlannerNodeCoordinate>;
     transitDirectionCache: Map<string, Promise<AmapDirectionResult | null>>;
@@ -1215,14 +1018,14 @@ export class TripPlannerService {
     const firstPointId = params.dayPointIds[0];
     const lastPointId = params.dayPointIds[params.dayPointIds.length - 1];
 
-    if (params.arrivalAirportId) {
-      legPairs.push({
-        fromPointId: params.arrivalAirportId,
-        toPointId: firstPointId,
-      });
-    } else if (params.previousHotelId) {
+    if (params.previousHotelId) {
       legPairs.push({
         fromPointId: params.previousHotelId,
+        toPointId: firstPointId,
+      });
+    } else {
+      legPairs.push({
+        fromPointId: params.currentHotelId,
         toPointId: firstPointId,
       });
     }
@@ -1389,19 +1192,6 @@ export class TripPlannerService {
     return next.toISOString().slice(0, 10);
   }
 
-  private buildReturnFlightDateTime(
-    arrivalDateTime: string,
-    tripDays: number,
-  ): string | null {
-    const seed = new Date(arrivalDateTime);
-    if (!Number.isFinite(seed.getTime())) {
-      return null;
-    }
-    const days = Math.max(1, tripDays);
-    const target = new Date(seed.getTime() + days * 24 * 60 * 60 * 1000);
-    return target.toISOString();
-  }
-
   private mapSpotToPlannerPoint(
     spot: Spot,
     lang: PlannerLang,
@@ -1502,48 +1292,6 @@ export class TripPlannerService {
     };
   }
 
-  private mapRestaurantToPlannerPoint(
-    item: RestaurantPlace,
-    lang: PlannerLang,
-  ): PlannerPointView {
-    const nameI18n = ensureTextI18n(item.nameI18n, item.name);
-    const provinceI18n = ensureRegionI18n(item.provinceI18n, item.province);
-    const cityI18n = ensureRegionI18n(item.cityI18n, item.city);
-    const introI18n = ensureIntroI18n(item.introI18n);
-
-    return {
-      id: item.id,
-      pointType: 'restaurant',
-      name: resolveName(nameI18n, lang),
-      nameI18n,
-      province: item.province,
-      provinceI18n,
-      city: item.city,
-      cityI18n,
-      intro: resolveIntro(introI18n, lang),
-      introI18n,
-      suggestedDurationMinutes: item.suggestedDurationMinutes,
-      mealSlots: normalizeMealSlots(item.mealSlots),
-      reservationRequired: item.reservationRequired === true,
-      queueProfileJson: normalizeQueueProfile(item.queueProfileJson),
-      hasFoodCourt: false,
-      mealTimeWindowsJson: normalizeMealTimeWindows(item.mealTimeWindowsJson),
-      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
-      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
-      departureAnchorLatitude: item.departureAnchorLatitude,
-      departureAnchorLongitude: item.departureAnchorLongitude,
-      latitude:
-        typeof item.latitude === 'number' && Number.isFinite(item.latitude)
-          ? item.latitude
-          : null,
-      longitude:
-        typeof item.longitude === 'number' && Number.isFinite(item.longitude)
-          ? item.longitude
-          : null,
-      coverImageUrl: item.coverImageUrl,
-    };
-  }
-
   private mapHotelCandidate(hotel: HotelPlace): PlannerHotelCandidate {
     const primaryCoordinate =
       this.resolveCoordinatePair(
@@ -1565,7 +1313,6 @@ export class TripPlannerService {
         typeof hotel.starLevel === 'number' && Number.isFinite(hotel.starLevel)
           ? hotel.starLevel
           : null,
-      foreignerFriendly: hotel.foreignerFriendly !== false,
       arrivalAnchorLatitude: hotel.arrivalAnchorLatitude ?? null,
       arrivalAnchorLongitude: hotel.arrivalAnchorLongitude ?? null,
       departureAnchorLatitude: hotel.departureAnchorLatitude ?? null,
@@ -1573,7 +1320,6 @@ export class TripPlannerService {
       checkInTime: hotel.checkInTime?.trim() || null,
       checkOutTime: hotel.checkOutTime?.trim() || null,
       bookingUrl: hotel.bookingUrl?.trim() || null,
-      bookingStatus: normalizeBookingStatus(hotel.bookingStatus),
       pricePerNightMinCny: hotel.pricePerNightMinCny,
       pricePerNightMaxCny: hotel.pricePerNightMaxCny,
       latitude: primaryCoordinate?.latitude ?? null,
@@ -1660,28 +1406,16 @@ export class TripPlannerService {
     return this.buildUniformOpeningHours('10:00', '22:00');
   }
 
-  private buildFlightLink(params: {
-    direction: 'outbound' | 'return';
-    city: string;
-    province: string;
-    dateTime: string | null;
-  }): string {
+  private buildFlightLink(
+    fromAirportCode: string,
+    toAirportCode: string,
+  ): string {
     const url = new URL(this.config.tripFlightDeeplinkBaseUrl);
-    const isoDateTime =
-      params.dateTime && Number.isFinite(Date.parse(params.dateTime))
-        ? new Date(params.dateTime).toISOString()
-        : null;
-
     url.searchParams.set('tripType', 'OW');
-    url.searchParams.set('direction', params.direction);
-    url.searchParams.set('city', params.city);
-    url.searchParams.set('province', params.province);
+    url.searchParams.set('fromAirportCode', fromAirportCode);
+    url.searchParams.set('toAirportCode', toAirportCode);
     url.searchParams.set('locale', this.config.tripDefaultLocale);
     url.searchParams.set('currency', this.config.tripDefaultCurrency);
-    if (isoDateTime) {
-      url.searchParams.set('dateTime', isoDateTime);
-      url.searchParams.set('date', isoDateTime.slice(0, 10));
-    }
 
     this.applyAffiliateParams(url);
     return url.toString();
@@ -1705,6 +1439,305 @@ export class TripPlannerService {
     return url.toString();
   }
 
+  private computeEndDate(startDate: string, tripDays: number): string {
+    return this.addDaysToIsoDate(startDate, Math.max(0, tripDays - 1));
+  }
+
+  private buildHotelBookingSegments(
+    days: OptimizerSolveResponse['days'],
+    hotelCandidates: PlannerHotelCandidate[],
+    startDate: string,
+    city: string,
+    province: string,
+  ): ResolvedHotelBookingSegment[] {
+    if (days.length === 0) {
+      return [];
+    }
+
+    const hotelById = new Map(hotelCandidates.map((item) => [item.id, item] as const));
+    const segments: Array<{
+      hotelId: string;
+      startDate: string;
+      endDate: string;
+      isFirst: boolean;
+    }> = [];
+
+    let segmentStartIndex = 0;
+    for (let index = 1; index <= days.length; index += 1) {
+      const segmentClosed =
+        index === days.length || days[index]?.hotelId !== days[segmentStartIndex]?.hotelId;
+      if (!segmentClosed) {
+        continue;
+      }
+
+      segments.push({
+        hotelId: days[segmentStartIndex].hotelId,
+        startDate: days[segmentStartIndex].date,
+        endDate: days[index - 1].date,
+        isFirst: segmentStartIndex === 0,
+      });
+      segmentStartIndex = index;
+    }
+
+    return segments.map((segment) => {
+      const hotel = hotelById.get(segment.hotelId);
+      if (!hotel) {
+        throw new ServiceUnavailableException({
+          code: 'TRIP_PLANNER_INVALID_SOLVER_OUTPUT',
+          message: `Optimizer returned unknown hotelId=${segment.hotelId} for booking segment.`,
+        });
+      }
+
+      const checkInDate = segment.isFirst
+        ? this.addDaysToIsoDate(startDate, -1)
+        : segment.startDate;
+      const checkOutDate = this.addDaysToIsoDate(segment.endDate, 1);
+      const nights = Math.max(
+        1,
+        Math.round(
+          (Date.parse(`${checkOutDate}T00:00:00.000Z`) -
+            Date.parse(`${checkInDate}T00:00:00.000Z`)) /
+            (24 * 60 * 60 * 1000),
+        ),
+      );
+
+      return {
+        itineraryStartDate: segment.startDate,
+        itineraryEndDate: segment.endDate,
+        hotelId: hotel.id,
+        hotelName: hotel.name,
+        checkInDate,
+        checkOutDate,
+        nights,
+        bookingUrl:
+          hotel.bookingUrl ??
+          this.buildHotelLink({
+            city,
+            province,
+            checkInDate,
+            checkOutDate,
+          }),
+      };
+    });
+  }
+
+  private buildHotelBookingLinks(
+    segments: ResolvedHotelBookingSegment[],
+  ): HotelBookingLink[] {
+    return segments.map((item) => ({
+      hotelId: item.hotelId,
+      hotelName: item.hotelName,
+      checkInDate: item.checkInDate,
+      checkOutDate: item.checkOutDate,
+      nights: item.nights,
+      bookingUrl: item.bookingUrl,
+    }));
+  }
+
+  private resolveDayHotelBookingLink(
+    hotelBookingLinks: ResolvedHotelBookingSegment[],
+    hotelId: string,
+    dayDate: string,
+  ): ResolvedHotelBookingSegment {
+    const match = hotelBookingLinks.find((item) => {
+      if (item.hotelId !== hotelId) {
+        return false;
+      }
+      return dayDate >= item.itineraryStartDate && dayDate <= item.itineraryEndDate;
+    });
+
+    if (!match) {
+      throw new ServiceUnavailableException({
+        code: 'TRIP_PLANNER_INVALID_SOLVER_OUTPUT',
+        message: `Unable to resolve hotel booking segment for hotelId=${hotelId} date=${dayDate}.`,
+      });
+    }
+
+    return match;
+  }
+
+  private resolveDayStartHotelBookingLink(
+    hotelBookingLinks: ResolvedHotelBookingSegment[],
+    previousHotelId: string | null,
+    currentHotelId: string,
+    dayDate: string,
+  ): ResolvedHotelBookingSegment {
+    if (!previousHotelId || previousHotelId === currentHotelId) {
+      return this.resolveDayHotelBookingLink(
+        hotelBookingLinks,
+        currentHotelId,
+        dayDate,
+      );
+    }
+
+    const previousSegment = hotelBookingLinks.find(
+      (item) => item.hotelId === previousHotelId && item.checkOutDate === dayDate,
+    );
+    if (previousSegment) {
+      return previousSegment;
+    }
+
+    return this.resolveDayHotelBookingLink(
+      hotelBookingLinks,
+      currentHotelId,
+      dayDate,
+    );
+  }
+
+  private buildLunchArrangement(
+    points: GeneratedTripPoint[],
+  ): {
+    points: GeneratedTripPoint[];
+    lunchBreak: { durationMinutes: number; note: string } | null;
+  } {
+    if (points.length === 0) {
+      return {
+        points,
+        lunchBreak: null,
+      };
+    }
+
+    const pointWithFoodCourtIndex = points.findIndex((item) => item.hasFoodCourt === true);
+    if (pointWithFoodCourtIndex >= 0) {
+      return {
+        points: points.map((item, index) => ({
+          ...item,
+          lunchIncluded: index === pointWithFoodCourtIndex,
+          lunchNote: index === pointWithFoodCourtIndex ? '含午餐时间' : null,
+        })),
+        lunchBreak: null,
+      };
+    }
+
+    const allLongStay = points.every(
+      (item) => item.suggestedDurationMinutes >= 240,
+    );
+    if (allLongStay) {
+      return {
+        points: points.map((item, index) => ({
+          ...item,
+          lunchIncluded: index === 0,
+          lunchNote: index === 0 ? '含午餐时间' : null,
+        })),
+        lunchBreak: null,
+      };
+    }
+
+    return {
+      points,
+      lunchBreak: {
+        durationMinutes: 45,
+        note: '附近自行安排',
+      },
+    };
+  }
+
+  private buildDaySequence(params: {
+    startHotel: GeneratedTripHotelStop;
+    endHotel: GeneratedTripHotelStop;
+    legs: GeneratedTripResult['days'][number]['legs'];
+    points: GeneratedTripPoint[];
+    lunchBreak: { durationMinutes: number; note: string } | null;
+    lunchBreakBeforePointId: string | null;
+  }): GeneratedTripSequenceItem[] {
+    const sequence: GeneratedTripSequenceItem[] = [
+      {
+        itemType: 'hotel',
+        phase: 'start',
+        hotel: params.startHotel,
+      },
+    ];
+
+    let lunchInserted = false;
+    for (let index = 0; index < params.points.length; index += 1) {
+      const transport = params.legs[index];
+      if (transport) {
+        sequence.push({
+          itemType: 'transport',
+          ...transport,
+        });
+      }
+
+      const point = params.points[index];
+      if (
+        !lunchInserted &&
+        params.lunchBreak &&
+        params.lunchBreakBeforePointId &&
+        params.lunchBreakBeforePointId === point.id
+      ) {
+        sequence.push({
+          itemType: 'lunch_break',
+          durationMinutes: params.lunchBreak.durationMinutes,
+          note: params.lunchBreak.note,
+        });
+        lunchInserted = true;
+      }
+
+      sequence.push({
+        itemType: 'point',
+        ...point,
+      });
+
+      if (
+        !lunchInserted &&
+        params.lunchBreak &&
+        !params.lunchBreakBeforePointId &&
+        index === Math.floor(params.points.length / 2)
+      ) {
+        sequence.push({
+          itemType: 'lunch_break',
+          durationMinutes: params.lunchBreak.durationMinutes,
+          note: params.lunchBreak.note,
+        });
+        lunchInserted = true;
+      }
+    }
+
+    const returnLeg = params.legs[params.points.length];
+    if (returnLeg) {
+      sequence.push({
+        itemType: 'transport',
+        ...returnLeg,
+      });
+    }
+
+    sequence.push({
+      itemType: 'hotel',
+      phase: 'end',
+      hotel: params.endHotel,
+    });
+
+    return sequence;
+  }
+
+  private buildOptimizerDayDiagnosticsMap(
+    diagnostics: Record<string, unknown> | undefined,
+  ): Map<number, OptimizerDayDiagnosticsView> {
+    const map = new Map<number, OptimizerDayDiagnosticsView>();
+    const days = Array.isArray(diagnostics?.days)
+      ? (diagnostics.days as Array<Record<string, unknown>>)
+      : [];
+
+    for (const item of days) {
+      const dayNumber = Number(item.dayNumber);
+      if (!Number.isInteger(dayNumber) || dayNumber <= 0) {
+        continue;
+      }
+      map.set(dayNumber, {
+        lunchBreakMinutes:
+          typeof item.lunchBreakMinutes === 'number'
+            ? item.lunchBreakMinutes
+            : undefined,
+        lunchBreakBeforePointId:
+          typeof item.lunchBreakBeforePointId === 'string'
+            ? item.lunchBreakBeforePointId
+            : null,
+      });
+    }
+
+    return map;
+  }
+
   private applyAffiliateParams(url: URL): void {
     const aid = this.normalizeOptional(this.config.tripAffiliateAid);
     const sid = this.normalizeOptional(this.config.tripAffiliateSid);
@@ -1721,7 +1754,7 @@ export class TripPlannerService {
   }
 
   private assertPointWithinCity(
-    pointType: 'spot' | 'shopping' | 'restaurant',
+    pointType: 'spot' | 'shopping',
     pointId: string,
     pointCity: string,
     city: string,
@@ -1742,7 +1775,7 @@ export class TripPlannerService {
   }
 
   private assertPointWithinProvince(
-    pointType: 'spot' | 'shopping' | 'restaurant',
+    pointType: 'spot' | 'shopping',
     pointId: string,
     pointProvince: string,
     province: string,
@@ -1765,7 +1798,7 @@ export class TripPlannerService {
   private assertSolverReadySelectedPoints(points: GeneratedPlannerPoint[]): void {
     const invalid: Array<{
       id: string;
-      pointType: 'spot' | 'shopping' | 'restaurant';
+      pointType: 'spot' | 'shopping';
       reason: string;
     }> = [];
 
@@ -1810,10 +1843,7 @@ export class TripPlannerService {
         });
         continue;
       }
-      if (
-        point.pointType !== 'restaurant' &&
-        point.openingHoursJson.length === 0
-      ) {
+      if (point.openingHoursJson.length === 0) {
         invalid.push({
           id: point.id,
           pointType: point.pointType,
@@ -1826,17 +1856,6 @@ export class TripPlannerService {
           id: point.id,
           pointType: point.pointType,
           reason: 'missing_last_entry_time',
-        });
-        continue;
-      }
-      if (
-        point.pointType === 'restaurant' &&
-        (point.mealSlots.length === 0 || point.mealTimeWindowsJson.length === 0)
-      ) {
-        invalid.push({
-          id: point.id,
-          pointType: point.pointType,
-          reason: 'missing_meal_time_windows',
         });
       }
     }
@@ -1900,31 +1919,6 @@ export class TripPlannerService {
     }
   }
 
-  private assertSolverReadyAirport(
-    airport: LocationAirport | null,
-    field: 'arrivalAirportCode' | 'departureAirportCode',
-  ): void {
-    if (!airport) {
-      return;
-    }
-    const coordinate = this.resolveAirportCoordinateForSolver(
-      airport,
-      field === 'arrivalAirportCode' ? 'arrival' : 'departure',
-    );
-    if (coordinate) {
-      return;
-    }
-    throw new BadRequestException({
-      code: 'TRIP_PLANNER_AIRPORT_NOT_SOLVER_READY',
-      message: `${field} airport is missing coordinates.`,
-      details: {
-        field,
-        airportCode: airport.airportCode,
-        airportId: airport.id,
-      },
-    });
-  }
-
   private inferSingleProvince(provinces: string[]): string | null {
     const normalized = provinces
       .map((item) => item.trim())
@@ -1977,15 +1971,4 @@ export class TripPlannerService {
   private isSameText(left: string, right: string): boolean {
     return left.trim().toLowerCase() === right.trim().toLowerCase();
   }
-}
-
-function normalizeMealSlots(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const normalized = input.filter(
-    (item): item is string =>
-      typeof item === 'string' && RESTAURANT_MEAL_SLOTS.has(item),
-  );
-  return Array.from(new Set(normalized));
 }

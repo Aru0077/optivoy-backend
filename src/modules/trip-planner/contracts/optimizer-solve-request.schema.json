@@ -5,15 +5,13 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "arrivalDateTime",
-    "airportBufferMinutes",
+    "startDate",
     "paceMode",
-    "hotelMode",
+    "hotelStrategy",
     "mealPolicy",
     "points",
     "hotels",
-    "distanceMatrix",
-    "maxDays"
+    "distanceMatrix"
   ],
   "properties": {
     "city": {
@@ -29,48 +27,9 @@
       "minLength": 1,
       "maxLength": 120
     },
-    "arrivalAirportCode": {
+    "startDate": {
       "type": "string",
-      "pattern": "^[A-Z]{3}$"
-    },
-    "departureAirportCode": {
-      "type": "string",
-      "pattern": "^[A-Z]{3}$"
-    },
-    "arrivalAirportId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64
-    },
-    "departureAirportId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64
-    },
-    "arrivalAirport": {
-      "$ref": "#/$defs/coordinate"
-    },
-    "departureAirport": {
-      "$ref": "#/$defs/coordinate"
-    },
-    "arrivalAirportBufferMinutes": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 480
-    },
-    "departureAirportBufferMinutes": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 480
-    },
-    "arrivalDateTime": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "airportBufferMinutes": {
-      "type": "integer",
-      "minimum": 60,
-      "maximum": 120
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
     },
     "paceMode": {
       "type": "string",
@@ -80,11 +39,11 @@
         "compact"
       ]
     },
-    "hotelMode": {
+    "hotelStrategy": {
       "type": "string",
       "enum": [
         "single",
-        "multi"
+        "smart"
       ]
     },
     "mealPolicy": {
@@ -126,11 +85,6 @@
         }
       }
     },
-    "maxDays": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 14
-    },
     "transportPreference": {
       "type": "string",
       "enum": [
@@ -168,19 +122,7 @@
         }
       }
     },
-    "weekday": {
-      "type": "string",
-      "enum": [
-        "mon",
-        "tue",
-        "wed",
-        "thu",
-        "fri",
-        "sat",
-        "sun"
-      ]
-    },
-    "timeRange": {
+    "planningTimeRange": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -203,20 +145,21 @@
       "additionalProperties": false,
       "required": [
         "weekday",
-        "start",
-        "end"
+        "periods"
       ],
       "properties": {
         "weekday": {
-          "$ref": "#/$defs/weekday"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
         },
-        "start": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "end": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        "periods": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/planningTimeRange"
+          }
         }
       }
     },
@@ -238,229 +181,6 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 1440
-        }
-      }
-    },
-    "bestVisitWindow": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "start",
-        "end",
-        "tag"
-      ],
-      "properties": {
-        "start": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "end": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "tag": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 48
-        }
-      }
-    },
-    "mealSlot": {
-      "type": "string",
-      "enum": [
-        "breakfast",
-        "lunch",
-        "dinner",
-        "night_snack"
-      ]
-    },
-    "mealTimeWindow": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "slot",
-        "start",
-        "end"
-      ],
-      "properties": {
-        "slot": {
-          "$ref": "#/$defs/mealSlot"
-        },
-        "start": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "end": {
-          "type": "string",
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        }
-      }
-    },
-    "bookingStatus": {
-      "type": "string",
-      "enum": [
-        "available",
-        "limited",
-        "sold_out",
-        "unknown"
-      ]
-    },
-    "point": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "pointType",
-        "suggestedDurationMinutes"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        },
-        "pointType": {
-          "type": "string",
-          "enum": [
-            "spot",
-            "shopping",
-            "restaurant"
-          ]
-        },
-        "suggestedDurationMinutes": {
-          "type": "integer",
-          "minimum": 10,
-          "maximum": 720
-        },
-        "latitude": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": -90,
-          "maximum": 90
-        },
-        "longitude": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": -180,
-          "maximum": 180
-        },
-        "arrivalAnchor": {
-          "$ref": "#/$defs/coordinate"
-        },
-        "departureAnchor": {
-          "$ref": "#/$defs/coordinate"
-        },
-        "openingHoursJson": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/openingHoursRule"
-          }
-        },
-        "specialClosureDates": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-          }
-        },
-        "lastEntryTime": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "hasFoodCourt": {
-          "type": "boolean"
-        },
-        "queueProfileJson": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/queueProfile"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "mealSlots": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/mealSlot"
-          }
-        },
-        "mealTimeWindowsJson": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/mealTimeWindow"
-          }
-        }
-      }
-    },
-    "hotel": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        },
-        "latitude": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": -90,
-          "maximum": 90
-        },
-        "longitude": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": -180,
-          "maximum": 180
-        },
-        "arrivalAnchor": {
-          "$ref": "#/$defs/coordinate"
-        },
-        "departureAnchor": {
-          "$ref": "#/$defs/coordinate"
-        },
-        "foreignerFriendly": {
-          "type": "boolean"
-        },
-        "checkInTime": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "checkOutTime": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "bookingStatus": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/bookingStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       }
     },
@@ -519,6 +239,124 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pointType",
+        "suggestedDurationMinutes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pointType": {
+          "type": "string",
+          "enum": [
+            "spot",
+            "shopping"
+          ]
+        },
+        "suggestedDurationMinutes": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 720
+        },
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "arrivalAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "departureAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "openingHoursJson": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/openingHoursRule"
+          }
+        },
+        "specialClosureDates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "lastEntryTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "hasFoodCourt": {
+          "type": "boolean"
+        },
+        "queueProfileJson": {
+          "$ref": "#/$defs/queueProfile"
+        }
+      }
+    },
+    "hotel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "arrivalAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "departureAnchor": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "checkInTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "checkOutTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
         }
       }
     }

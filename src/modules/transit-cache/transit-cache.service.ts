@@ -2,8 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
-import { LocationAirport } from '../locations/entities/location-airport.entity';
-import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import {
@@ -55,12 +53,8 @@ export class TransitCacheService {
     private readonly spotRepository: Repository<Spot>,
     @InjectRepository(ShoppingPlace)
     private readonly shoppingRepository: Repository<ShoppingPlace>,
-    @InjectRepository(RestaurantPlace)
-    private readonly restaurantRepository: Repository<RestaurantPlace>,
     @InjectRepository(HotelPlace)
     private readonly hotelRepository: Repository<HotelPlace>,
-    @InjectRepository(LocationAirport)
-    private readonly airportRepository: Repository<LocationAirport>,
   ) {}
 
   async markCityStale(city: string, province?: string | null): Promise<void> {
@@ -340,7 +334,7 @@ export class TransitCacheService {
       return new Set<string>();
     }
 
-    const [spots, shopping, restaurants, hotels, airports] = await Promise.all([
+    const [spots, shopping, hotels] = await Promise.all([
       this.spotRepository
         .createQueryBuilder('spot')
         .select('spot.id', 'id')
@@ -351,29 +345,17 @@ export class TransitCacheService {
         .select('shopping.id', 'id')
         .where('shopping.id IN (:...pointIds)', { pointIds })
         .getRawMany<{ id: string }>(),
-      this.restaurantRepository
-        .createQueryBuilder('restaurant')
-        .select('restaurant.id', 'id')
-        .where('restaurant.id IN (:...pointIds)', { pointIds })
-        .getRawMany<{ id: string }>(),
       this.hotelRepository
         .createQueryBuilder('hotel')
         .select('hotel.id', 'id')
         .where('hotel.id IN (:...pointIds)', { pointIds })
-        .getRawMany<{ id: string }>(),
-      this.airportRepository
-        .createQueryBuilder('airport')
-        .select('airport.id', 'id')
-        .where('airport.id IN (:...pointIds)', { pointIds })
         .getRawMany<{ id: string }>(),
     ]);
 
     return new Set<string>([
       ...spots.map((item) => item.id),
       ...shopping.map((item) => item.id),
-      ...restaurants.map((item) => item.id),
       ...hotels.map((item) => item.id),
-      ...airports.map((item) => item.id),
     ]);
   }
 

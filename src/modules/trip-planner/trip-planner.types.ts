@@ -1,7 +1,5 @@
 import { ContentLang } from '../../common/utils/content-i18n.util';
 import type {
-  BookingStatus,
-  MealTimeWindow,
   OpeningHoursRule,
   QueueProfile,
 } from '../../common/utils/planning-metadata.util';
@@ -11,12 +9,11 @@ export interface TripCityItem {
   city: string;
   spotsCount: number;
   shoppingCount: number;
-  restaurantsCount: number;
 }
 
 export interface PlannerPointView {
   id: string;
-  pointType: 'spot' | 'shopping' | 'restaurant';
+  pointType: 'spot' | 'shopping';
   name: string;
   nameI18n: Record<string, string>;
   province: string;
@@ -26,14 +23,12 @@ export interface PlannerPointView {
   intro: string;
   introI18n: Record<string, string | undefined>;
   suggestedDurationMinutes: number;
-  mealSlots?: string[];
   openingHoursJson?: OpeningHoursRule[];
   specialClosureDates?: string[];
   lastEntryTime?: string | null;
   reservationRequired?: boolean;
   queueProfileJson?: QueueProfile | null;
   hasFoodCourt?: boolean;
-  mealTimeWindowsJson?: MealTimeWindow[];
   arrivalAnchorLatitude?: number | null;
   arrivalAnchorLongitude?: number | null;
   departureAnchorLatitude?: number | null;
@@ -50,7 +45,6 @@ export interface PlannerHotelCandidate {
   province: string;
   city: string;
   starLevel: number | null;
-  foreignerFriendly: boolean;
   arrivalAnchorLatitude: number | null;
   arrivalAnchorLongitude: number | null;
   departureAnchorLatitude: number | null;
@@ -58,7 +52,6 @@ export interface PlannerHotelCandidate {
   checkInTime: string | null;
   checkOutTime: string | null;
   bookingUrl: string | null;
-  bookingStatus: BookingStatus | null;
   pricePerNightMinCny: number | null;
   pricePerNightMaxCny: number | null;
   latitude: number | null;
@@ -78,22 +71,58 @@ export interface GeneratedTripLeg {
 
 export interface GeneratedTripPoint {
   id: string;
-  pointType: 'spot' | 'shopping' | 'restaurant';
+  pointType: 'spot' | 'shopping';
   name: string;
   suggestedDurationMinutes: number;
   guideI18n: Record<string, string | undefined>;
-  mealSlots?: string[];
   coverImageUrl?: string | null;
+  hasFoodCourt?: boolean;
+  lunchIncluded?: boolean;
+  lunchNote?: string | null;
 }
+
+export interface GeneratedTripHotelStop {
+  id: string;
+  name: string;
+  checkInDate: string;
+  checkOutDate: string;
+}
+
+export interface GeneratedTripTransportSequenceItem extends GeneratedTripLeg {
+  itemType: 'transport';
+}
+
+export interface GeneratedTripPointSequenceItem extends GeneratedTripPoint {
+  itemType: 'point';
+}
+
+export interface GeneratedTripLunchBreakSequenceItem {
+  itemType: 'lunch_break';
+  durationMinutes: number;
+  note: string;
+}
+
+export interface GeneratedTripHotelSequenceItem {
+  itemType: 'hotel';
+  phase: 'start' | 'end';
+  hotel: GeneratedTripHotelStop;
+}
+
+export type GeneratedTripSequenceItem =
+  | GeneratedTripHotelSequenceItem
+  | GeneratedTripTransportSequenceItem
+  | GeneratedTripPointSequenceItem
+  | GeneratedTripLunchBreakSequenceItem;
 
 export interface GeneratedTripDay {
   dayNumber: number;
   date: string;
-  hotel: {
-    id: string;
-    name: string;
-    bookingUrl: string;
-  };
+  hotel: GeneratedTripHotelStop;
+  sequence: GeneratedTripSequenceItem[];
+  lunchBreak?: {
+    durationMinutes: number;
+    note: string;
+  } | null;
   legs: GeneratedTripLeg[];
   points: GeneratedTripPoint[];
 }
@@ -101,11 +130,12 @@ export interface GeneratedTripDay {
 export interface GeneratedTripResult {
   city: string;
   province: string;
-  arrivalDateTime: string;
-  arrivalBufferMinutes: number;
+  startDate: string;
+  endDate: string;
   tripDays: number;
   solverStatus: 'OPTIMAL' | 'FEASIBLE';
   days: GeneratedTripDay[];
+  hotelBookingLinks: HotelBookingLink[];
   links: {
     outboundFlight: string;
     returnFlight: string;
@@ -131,11 +161,19 @@ export interface TripPlannerMatrixCheckResult {
   nodeCount: number;
   pointCount: number;
   hotelCount: number;
-  airportCount: number;
   directed: TripPlannerMatrixCoverageStats;
   undirected: TripPlannerMatrixCoverageStats;
   missingEdgesSample: TripPlannerMatrixMissingEdge[];
   canGenerate: boolean;
+}
+
+export interface HotelBookingLink {
+  hotelId: string;
+  hotelName: string;
+  checkInDate: string;
+  checkOutDate: string;
+  nights: number;
+  bookingUrl: string;
 }
 
 export type PlannerLang = ContentLang;

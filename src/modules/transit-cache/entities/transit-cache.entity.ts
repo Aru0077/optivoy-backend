@@ -12,9 +12,7 @@ import {
 export type TransitCachePointType =
   | 'spot'
   | 'shopping'
-  | 'restaurant'
-  | 'hotel'
-  | 'airport';
+  | 'hotel';
 
 export type TransitCacheStatus = 'ready' | 'stale' | 'failed';
 export type TransitProviderStatus = 'ready' | 'fallback' | 'failed';

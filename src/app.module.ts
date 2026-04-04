@@ -24,7 +24,6 @@ import { HotelModule } from './modules/hotels/hotel.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { MatrixAdminModule } from './modules/matrix-admin/matrix-admin.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { RestaurantModule } from './modules/restaurants/restaurant.module';
 import { ShoppingModule } from './modules/shopping/shopping.module';
 import { SpotsModule } from './modules/spots/spots.module';
 import { TripPlannerModule } from './modules/trip-planner/trip-planner.module';
@@ -72,7 +71,6 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     NotificationsModule,
     UploadsModule,
     SpotsModule,
-    RestaurantModule,
     ShoppingModule,
     HotelModule,
     TripPlannerModule,

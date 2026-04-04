@@ -19,11 +19,7 @@ const EXISTING_POINTS_CTE = `
     UNION
     SELECT id FROM shopping_places
     UNION
-    SELECT id FROM restaurants
-    UNION
     SELECT id FROM hotels
-    UNION
-    SELECT id FROM location_airports
   )
 `;
 

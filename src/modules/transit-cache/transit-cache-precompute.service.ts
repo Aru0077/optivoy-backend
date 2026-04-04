@@ -2,8 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
-import { LocationAirport } from '../locations/entities/location-airport.entity';
-import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import {
@@ -93,12 +91,8 @@ export class TransitCachePrecomputeService {
     private readonly spotRepository: Repository<Spot>,
     @InjectRepository(ShoppingPlace)
     private readonly shoppingRepository: Repository<ShoppingPlace>,
-    @InjectRepository(RestaurantPlace)
-    private readonly restaurantRepository: Repository<RestaurantPlace>,
     @InjectRepository(HotelPlace)
     private readonly hotelRepository: Repository<HotelPlace>,
-    @InjectRepository(LocationAirport)
-    private readonly airportRepository: Repository<LocationAirport>,
     private readonly transitCacheService: TransitCacheService,
     private readonly amapTransitClient: AmapTransitClient,
   ) {}
@@ -305,7 +299,7 @@ export class TransitCachePrecomputeService {
   ): Promise<TransitPoint[]> {
     const normalizedProvince = province?.trim() || null;
 
-    const [spots, shopping, restaurants, hotels, airports] = await Promise.all([
+    const [spots, shopping, hotels] = await Promise.all([
       this.spotRepository
         .createQueryBuilder('spot')
         .where('spot."isPublished" = true')
@@ -332,17 +326,6 @@ export class TransitCachePrecomputeService {
           normalizedProvince ? { province: normalizedProvince } : {},
         )
         .getMany(),
-      this.restaurantRepository
-        .createQueryBuilder('restaurant')
-        .where('restaurant."isPublished" = true')
-        .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city })
-        .andWhere(
-          normalizedProvince
-            ? 'LOWER(restaurant.province) = LOWER(:province)'
-            : '1=1',
-          normalizedProvince ? { province: normalizedProvince } : {},
-        )
-        .getMany(),
       this.hotelRepository
         .createQueryBuilder('hotel')
         .where('hotel."isPublished" = true')
@@ -350,19 +333,6 @@ export class TransitCachePrecomputeService {
         .andWhere(
           normalizedProvince
             ? 'LOWER(hotel.province) = LOWER(:province)'
-            : '1=1',
-          normalizedProvince ? { province: normalizedProvince } : {},
-        )
-        .getMany(),
-      this.airportRepository
-        .createQueryBuilder('airport')
-        .leftJoinAndSelect('airport.city', 'city')
-        .leftJoinAndSelect('city.province', 'province')
-        .where('1=1')
-        .andWhere('LOWER(city.name) = LOWER(:city)', { city })
-        .andWhere(
-          normalizedProvince
-            ? 'LOWER(province.name) = LOWER(:province)'
             : '1=1',
           normalizedProvince ? { province: normalizedProvince } : {},
         )
@@ -416,37 +386,6 @@ export class TransitCachePrecomputeService {
       ];
     });
 
-    const restaurantPoints: TransitPoint[] = restaurants.flatMap((item) => {
-      const origin = this.resolveCoordinatePair(
-        item.departureAnchorLatitude,
-        item.departureAnchorLongitude,
-      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
-      const destinationCoordinate = this.resolveCoordinatePair(
-        item.arrivalAnchorLatitude,
-        item.arrivalAnchorLongitude,
-      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
-      if (!origin || !destinationCoordinate) {
-        return [];
-      }
-      return [
-        {
-          id: item.id,
-          pointType: 'restaurant',
-          city: item.city,
-          province: item.province,
-          cityI18n: item.cityI18n,
-          transitCityCandidates: this.resolveTransitCityCandidates(
-            item.city,
-            item.cityI18n,
-          ),
-          originLatitude: origin.latitude,
-          originLongitude: origin.longitude,
-          destinationLatitude: destinationCoordinate.latitude,
-          destinationLongitude: destinationCoordinate.longitude,
-        },
-      ];
-    });
-
     const hotelPoints: TransitPoint[] = hotels.flatMap((item) => {
       const origin = this.resolveCoordinatePair(
         item.departureAnchorLatitude,
@@ -478,43 +417,10 @@ export class TransitCachePrecomputeService {
       ];
     });
 
-    const airportPoints: TransitPoint[] = airports.flatMap((item) => {
-      const origin = this.resolveCoordinatePair(
-        item.departureAnchorLatitude,
-        item.departureAnchorLongitude,
-      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
-      const destinationCoordinate = this.resolveCoordinatePair(
-        item.arrivalAnchorLatitude,
-        item.arrivalAnchorLongitude,
-      ) ?? this.resolveCoordinatePair(item.latitude, item.longitude);
-      if (!origin || !destinationCoordinate) {
-        return [];
-      }
-      return [
-        {
-          id: item.id,
-          pointType: 'airport',
-          city: item.city?.name ?? city,
-          province: item.city?.province?.name ?? normalizedProvince,
-          cityI18n: item.city?.nameI18n ?? null,
-          transitCityCandidates: this.resolveTransitCityCandidates(
-            item.city?.name ?? city,
-            item.city?.nameI18n ?? null,
-          ),
-          originLatitude: origin.latitude,
-          originLongitude: origin.longitude,
-          destinationLatitude: destinationCoordinate.latitude,
-          destinationLongitude: destinationCoordinate.longitude,
-        },
-      ];
-    });
-
     return [
       ...spotPoints,
       ...shoppingPoints,
-      ...restaurantPoints,
       ...hotelPoints,
-      ...airportPoints,
     ];
   }
 

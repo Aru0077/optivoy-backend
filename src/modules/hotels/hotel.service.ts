@@ -26,11 +26,7 @@ import {
   BasePlaceService,
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
-import {
-  ensureCoordinatePair,
-  normalizeBookableDates,
-  normalizeBookingStatus,
-} from '../../common/utils/planning-metadata.util';
+import { ensureCoordinatePair } from '../../common/utils/planning-metadata.util';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
@@ -62,7 +58,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     const item = this.hotelRepository.create({
       ...this.buildBaseCreatePayload(dto),
       starLevel: dto.starLevel ?? null,
-      foreignerFriendly: dto.foreignerFriendly ?? true,
       arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
       arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
       departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
@@ -70,8 +65,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
       checkInTime: dto.checkInTime?.trim() || null,
       checkOutTime: dto.checkOutTime?.trim() || null,
       bookingUrl: dto.bookingUrl?.trim() || null,
-      bookingStatus: planningMetadata.bookingStatus,
-      bookableDatesJson: planningMetadata.bookableDatesJson,
       pricePerNightMinCny: dto.pricePerNightMinCny ?? null,
       pricePerNightMaxCny: dto.pricePerNightMaxCny ?? null,
       isPublished: dto.isPublished ?? true,
@@ -98,9 +91,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     if (dto.starLevel !== undefined) {
       item.starLevel = dto.starLevel;
     }
-    if (dto.foreignerFriendly !== undefined) {
-      item.foreignerFriendly = dto.foreignerFriendly;
-    }
     if (dto.arrivalAnchorLatitude !== undefined) {
       item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
     }
@@ -121,12 +111,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     }
     if (dto.bookingUrl !== undefined) {
       item.bookingUrl = dto.bookingUrl?.trim() || null;
-    }
-    if (dto.bookingStatus !== undefined) {
-      item.bookingStatus = planningMetadata.bookingStatus;
-    }
-    if (dto.bookableDatesJson !== undefined) {
-      item.bookableDatesJson = planningMetadata.bookableDatesJson;
     }
 
     const nextPricePerNightMinCny =
@@ -298,7 +282,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
         typeof item.starLevel === 'number' && Number.isFinite(item.starLevel)
           ? item.starLevel
           : null,
-      foreignerFriendly: item.foreignerFriendly !== false,
       arrivalAnchorLatitude: item.arrivalAnchorLatitude,
       arrivalAnchorLongitude: item.arrivalAnchorLongitude,
       departureAnchorLatitude: item.departureAnchorLatitude,
@@ -306,8 +289,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
       checkInTime: item.checkInTime?.trim() || null,
       checkOutTime: item.checkOutTime?.trim() || null,
       bookingUrl: item.bookingUrl?.trim() || null,
-      bookingStatus: normalizeBookingStatus(item.bookingStatus),
-      bookableDatesJson: normalizeBookableDates(item.bookableDatesJson),
       pricePerNightMinCny: item.pricePerNightMinCny,
       pricePerNightMaxCny: item.pricePerNightMaxCny,
       isPublished: item.isPublished,
@@ -323,11 +304,14 @@ export class HotelService extends BasePlaceService<HotelPlace> {
       | 'arrivalAnchorLongitude'
       | 'departureAnchorLatitude'
       | 'departureAnchorLongitude'
-      | 'bookingStatus'
-      | 'bookableDatesJson'
     >,
     current?: HotelPlace,
-  ) {
+  ): {
+    arrivalAnchorLatitude: number | null;
+    arrivalAnchorLongitude: number | null;
+    departureAnchorLatitude: number | null;
+    departureAnchorLongitude: number | null;
+  } {
     try {
       const arrivalAnchorLatitude =
         dto.arrivalAnchorLatitude !== undefined
@@ -362,14 +346,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
         arrivalAnchorLongitude,
         departureAnchorLatitude,
         departureAnchorLongitude,
-        bookingStatus:
-          dto.bookingStatus !== undefined
-            ? normalizeBookingStatus(dto.bookingStatus)
-            : current?.bookingStatus ?? null,
-        bookableDatesJson:
-          dto.bookableDatesJson !== undefined
-            ? normalizeBookableDates(dto.bookableDatesJson)
-            : current?.bookableDatesJson ?? null,
       };
     } catch (error) {
       throw new BadRequestException({

@@ -1,19 +1,14 @@
 import {
-  ArrayMaxSize,
-  ArrayUnique,
-  IsArray,
   IsDateString,
   IsIn,
-  IsInt,
-  Max,
   IsOptional,
+  IsArray,
   IsString,
   IsUUID,
-  Matches,
+  ArrayMaxSize,
+  ArrayUnique,
   MaxLength,
-  Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class GenerateItineraryDto {
   @IsString()
@@ -26,14 +21,7 @@ export class GenerateItineraryDto {
   province?: string;
 
   @IsDateString()
-  arrivalDateTime: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(60)
-  @Max(120)
-  arrivalBufferMinutes: number = 90;
+  startDate: string;
 
   @IsArray()
   @ArrayMaxSize(200)
@@ -46,62 +34,11 @@ export class GenerateItineraryDto {
   paceMode: 'light' | 'standard' | 'compact';
 
   @IsString()
-  @IsIn(['single', 'multi'])
-  hotelMode: 'single' | 'multi';
+  @IsIn(['single', 'smart'])
+  hotelStrategy: 'single' | 'smart';
 
   @IsOptional()
   @IsString()
   @IsIn(['auto', 'off'])
   mealPolicy: 'auto' | 'off' = 'auto';
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[A-Z]{3}$/)
-  arrivalAirportCode?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[A-Z]{3}$/)
-  departureAirportCode?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(600)
-  switchPenaltyMinutes?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(600)
-  newHotelPenaltyMinutes?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(8)
-  maxIterations?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(5000)
-  badDayTransitMinutesThreshold?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(5000)
-  badDayPenaltyMinutes?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @Min(0.2)
-  @Max(30)
-  timeLimitSeconds?: number;
 }

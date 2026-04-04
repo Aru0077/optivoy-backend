@@ -2,13 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OptimizerConfig } from '../../config/optimizer.config';
 import type {
-  BookingStatus,
-  MealTimeWindow,
   OpeningHoursRule,
   QueueProfile,
 } from '../../common/utils/planning-metadata.util';
 
-export type OptimizerPointType = 'spot' | 'shopping' | 'restaurant';
+export type OptimizerPointType = 'spot' | 'shopping';
 
 export interface OptimizerPointInput {
   id: string;
@@ -23,8 +21,6 @@ export interface OptimizerPointInput {
   lastEntryTime?: string | null;
   hasFoodCourt?: boolean;
   queueProfileJson?: QueueProfile | null;
-  mealSlots?: string[];
-  mealTimeWindowsJson?: MealTimeWindow[];
 }
 
 export interface OptimizerHotelInput {
@@ -33,10 +29,8 @@ export interface OptimizerHotelInput {
   longitude: number | null;
   arrivalAnchor?: OptimizerCoordinateInput;
   departureAnchor?: OptimizerCoordinateInput;
-  foreignerFriendly?: boolean;
   checkInTime?: string | null;
   checkOutTime?: string | null;
-  bookingStatus?: BookingStatus | null;
 }
 
 export interface OptimizerCoordinateInput {
@@ -58,25 +52,15 @@ export interface OptimizerDistanceMatrixRow {
 export interface OptimizerSolveRequest {
   city: string;
   province: string | null;
-  arrivalAirportCode?: string;
-  departureAirportCode?: string;
-  arrivalAirportId?: string;
-  departureAirportId?: string;
-  arrivalAirport?: OptimizerCoordinateInput;
-  departureAirport?: OptimizerCoordinateInput;
-  arrivalAirportBufferMinutes?: number;
-  departureAirportBufferMinutes?: number;
-  arrivalDateTime: string;
-  airportBufferMinutes: number;
+  startDate: string;
   paceMode: 'light' | 'standard' | 'compact';
-  hotelMode: 'single' | 'multi';
+  hotelStrategy: 'single' | 'smart';
   mealPolicy: 'auto' | 'off';
   points: OptimizerPointInput[];
   hotels: OptimizerHotelInput[];
   distanceMatrix: {
     rows: OptimizerDistanceMatrixRow[];
   };
-  maxDays: number;
   transportPreference?: 'transit_first' | 'driving_first' | 'mixed';
   maxIntradayDrivingMinutes?: number;
 }

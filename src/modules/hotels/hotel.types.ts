@@ -1,5 +1,3 @@
-import type { BookingStatus } from '../../common/utils/planning-metadata.util';
-
 export interface HotelView {
   id: string;
   name: string;
@@ -19,7 +17,6 @@ export interface HotelView {
   notice: string;
   noticeI18n: Record<string, string | undefined>;
   starLevel: number | null;
-  foreignerFriendly: boolean;
   arrivalAnchorLatitude: number | null;
   arrivalAnchorLongitude: number | null;
   departureAnchorLatitude: number | null;
@@ -27,8 +24,6 @@ export interface HotelView {
   checkInTime: string | null;
   checkOutTime: string | null;
   bookingUrl: string | null;
-  bookingStatus: BookingStatus | null;
-  bookableDatesJson: string[];
   pricePerNightMinCny: number | null;
   pricePerNightMaxCny: number | null;
   isPublished: boolean;

@@ -9,8 +9,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
-import { LocationAirport } from '../locations/entities/location-airport.entity';
-import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import {
@@ -90,9 +88,7 @@ export interface MatrixNodeCountSummary {
   total: number;
   spot: number;
   shopping: number;
-  restaurant: number;
   hotel: number;
-  airport: number;
 }
 
 export interface MatrixModeCoverageSummary {
@@ -214,12 +210,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     private readonly spotRepository: Repository<Spot>,
     @InjectRepository(ShoppingPlace)
     private readonly shoppingRepository: Repository<ShoppingPlace>,
-    @InjectRepository(RestaurantPlace)
-    private readonly restaurantRepository: Repository<RestaurantPlace>,
     @InjectRepository(HotelPlace)
     private readonly hotelRepository: Repository<HotelPlace>,
-    @InjectRepository(LocationAirport)
-    private readonly airportRepository: Repository<LocationAirport>,
     @InjectRepository(TransitCache)
     private readonly transitCacheRepository: Repository<TransitCache>,
     @InjectRepository(MatrixRecomputeJob)
@@ -715,9 +707,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       total: nodes.length,
       spot: nodes.filter((item) => item.pointType === 'spot').length,
       shopping: nodes.filter((item) => item.pointType === 'shopping').length,
-      restaurant: nodes.filter((item) => item.pointType === 'restaurant').length,
       hotel: nodes.filter((item) => item.pointType === 'hotel').length,
-      airport: nodes.filter((item) => item.pointType === 'airport').length,
     };
 
     const expectedDirected =
@@ -987,7 +977,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     city: string,
     province: string | null,
   ): Promise<MatrixNode[]> {
-    const [spots, shopping, restaurants, hotels, airports] = await Promise.all([
+    const [spots, shopping, hotels] = await Promise.all([
       this.spotRepository
         .createQueryBuilder('spot')
         .select([
@@ -1047,35 +1037,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
           latitude: number;
           longitude: number;
         }>(),
-      this.restaurantRepository
-        .createQueryBuilder('restaurant')
-        .select([
-          'restaurant.id AS id',
-          'restaurant.name AS name',
-          'restaurant.city AS city',
-          'restaurant.province AS province',
-          'COALESCE(restaurant."arrivalAnchorLatitude", restaurant.latitude) AS latitude',
-          'COALESCE(restaurant."arrivalAnchorLongitude", restaurant.longitude) AS longitude',
-        ])
-        .where('restaurant."isPublished" = true')
-        .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city })
-        .andWhere(
-          '(restaurant."arrivalAnchorLatitude" IS NOT NULL AND restaurant."arrivalAnchorLongitude" IS NOT NULL) OR (restaurant.latitude IS NOT NULL AND restaurant.longitude IS NOT NULL)',
-        )
-        .andWhere(
-          province
-            ? 'LOWER(restaurant.province) = LOWER(:province)'
-            : '1=1',
-          province ? { province } : {},
-        )
-        .getRawMany<{
-          id: string;
-          name: string;
-          city: string;
-          province: string | null;
-          latitude: number;
-          longitude: number;
-        }>(),
       this.hotelRepository
         .createQueryBuilder('hotel')
         .select([
@@ -1105,36 +1066,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
           latitude: number;
           longitude: number;
         }>(),
-      this.airportRepository
-        .createQueryBuilder('airport')
-        .leftJoin('airport.city', 'city')
-        .leftJoin('city.province', 'province')
-        .select([
-          'airport.id AS id',
-          'airport.name AS name',
-          'city.name AS city',
-          'province.name AS province',
-          'COALESCE(airport."arrivalAnchorLatitude", airport.latitude) AS latitude',
-          'COALESCE(airport."arrivalAnchorLongitude", airport.longitude) AS longitude',
-        ])
-        .where(
-          '(airport."arrivalAnchorLatitude" IS NOT NULL AND airport."arrivalAnchorLongitude" IS NOT NULL) OR (airport.latitude IS NOT NULL AND airport.longitude IS NOT NULL)',
-        )
-        .andWhere('LOWER(city.name) = LOWER(:city)', { city })
-        .andWhere(
-          province
-            ? 'LOWER(province.name) = LOWER(:province)'
-            : '1=1',
-          province ? { province } : {},
-        )
-        .getRawMany<{
-          id: string;
-          name: string;
-          city: string;
-          province: string | null;
-          latitude: number;
-          longitude: number;
-        }>(),
     ]);
 
     return [
@@ -1146,17 +1077,9 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         ...item,
         pointType: 'shopping' as const,
       })),
-      ...restaurants.map((item) => ({
-        ...item,
-        pointType: 'restaurant' as const,
-      })),
       ...hotels.map((item) => ({
         ...item,
         pointType: 'hotel' as const,
-      })),
-      ...airports.map((item) => ({
-        ...item,
-        pointType: 'airport' as const,
       })),
     ];
   }
@@ -1197,7 +1120,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listCityRefs(): Promise<MatrixCityRef[]> {
-    const [spots, shopping, restaurants, hotels, airports] = await Promise.all([
+    const [spots, shopping, hotels] = await Promise.all([
       this.spotRepository
         .createQueryBuilder('spot')
         .select(['spot.city AS city', 'spot.province AS province'])
@@ -1219,16 +1142,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         .groupBy('shopping.city')
         .addGroupBy('shopping.province')
         .getRawMany<MatrixCityRef>(),
-      this.restaurantRepository
-        .createQueryBuilder('restaurant')
-        .select(['restaurant.city AS city', 'restaurant.province AS province'])
-        .where('restaurant."isPublished" = true')
-        .andWhere(
-          '(restaurant."arrivalAnchorLatitude" IS NOT NULL AND restaurant."arrivalAnchorLongitude" IS NOT NULL) OR (restaurant.latitude IS NOT NULL AND restaurant.longitude IS NOT NULL)',
-        )
-        .groupBy('restaurant.city')
-        .addGroupBy('restaurant.province')
-        .getRawMany<MatrixCityRef>(),
       this.hotelRepository
         .createQueryBuilder('hotel')
         .select(['hotel.city AS city', 'hotel.province AS province'])
@@ -1239,27 +1152,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         .groupBy('hotel.city')
         .addGroupBy('hotel.province')
         .getRawMany<MatrixCityRef>(),
-      this.airportRepository
-        .createQueryBuilder('airport')
-        .leftJoin('airport.city', 'city')
-        .leftJoin('city.province', 'province')
-        .select(['city.name AS city', 'province.name AS province'])
-        .where(
-          '(airport."arrivalAnchorLatitude" IS NOT NULL AND airport."arrivalAnchorLongitude" IS NOT NULL) OR (airport.latitude IS NOT NULL AND airport.longitude IS NOT NULL)',
-        )
-        .groupBy('city.name')
-        .addGroupBy('province.name')
-        .getRawMany<MatrixCityRef>(),
     ]);
 
     const merged = new Map<string, MatrixCityRef>();
-    for (const item of [
-      ...spots,
-      ...shopping,
-      ...restaurants,
-      ...hotels,
-      ...airports,
-    ]) {
+    for (const item of [...spots, ...shopping, ...hotels]) {
       const city = item.city?.trim() || '';
       const province = item.province?.trim() || null;
       if (!city) {
@@ -1299,17 +1195,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async resolvePointById(pointId: string): Promise<MatrixNode> {
-    const [spot, shopping, restaurant, hotel, airport] = await Promise.all([
+    const [spot, shopping, hotel] = await Promise.all([
       this.spotRepository.findOne({ where: { id: pointId } }),
       this.shoppingRepository.findOne({ where: { id: pointId } }),
-      this.restaurantRepository.findOne({ where: { id: pointId } }),
       this.hotelRepository.findOne({ where: { id: pointId } }),
-      this.airportRepository
-        .createQueryBuilder('airport')
-        .leftJoinAndSelect('airport.city', 'city')
-        .leftJoinAndSelect('city.province', 'province')
-        .where('airport.id = :pointId', { pointId })
-        .getOne(),
     ]);
 
     if (spot) {
@@ -1344,24 +1233,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         departureAnchorLongitude: shopping.departureAnchorLongitude ?? undefined,
       };
     }
-    if (restaurant) {
-      return {
-        id: restaurant.id,
-        pointType: 'restaurant',
-        name: restaurant.name,
-        city: restaurant.city,
-        province: restaurant.province || null,
-        cityI18n: restaurant.cityI18n,
-        latitude: restaurant.latitude as number,
-        longitude: restaurant.longitude as number,
-        arrivalAnchorLatitude: restaurant.arrivalAnchorLatitude ?? undefined,
-        arrivalAnchorLongitude: restaurant.arrivalAnchorLongitude ?? undefined,
-        departureAnchorLatitude:
-          restaurant.departureAnchorLatitude ?? undefined,
-        departureAnchorLongitude:
-          restaurant.departureAnchorLongitude ?? undefined,
-      };
-    }
     if (hotel) {
       return {
         id: hotel.id,
@@ -1376,24 +1247,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         arrivalAnchorLongitude: hotel.arrivalAnchorLongitude ?? undefined,
         departureAnchorLatitude: hotel.departureAnchorLatitude ?? undefined,
         departureAnchorLongitude: hotel.departureAnchorLongitude ?? undefined,
-      };
-    }
-    if (airport && airport.city) {
-      return {
-        id: airport.id,
-        pointType: 'airport',
-        name: airport.name,
-        city: airport.city.name,
-        province: airport.city.province?.name || null,
-        cityI18n: airport.city.nameI18n,
-        latitude: airport.latitude as number,
-        longitude: airport.longitude as number,
-        arrivalAnchorLatitude: airport.arrivalAnchorLatitude ?? undefined,
-        arrivalAnchorLongitude: airport.arrivalAnchorLongitude ?? undefined,
-        departureAnchorLatitude:
-          airport.departureAnchorLatitude ?? undefined,
-        departureAnchorLongitude:
-          airport.departureAnchorLongitude ?? undefined,
       };
     }
 
@@ -1481,18 +1334,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     city: string,
     province: string | null,
   ): Promise<MatrixDiagnosticsSummary> {
-    const [
-      spots,
-      shopping,
-      restaurants,
-      hotels,
-      airports,
-    ] = await Promise.all([
+    const [spots, shopping, hotels] = await Promise.all([
       this.loadPublishedSpots(city, province),
       this.loadPublishedShopping(city, province),
-      this.loadPublishedRestaurants(city, province),
       this.loadPublishedHotels(city, province),
-      this.loadPublishedAirports(city, province),
     ]);
 
     const anchorMissingSample: MatrixAnchorMissingItem[] = [];
@@ -1557,73 +1402,15 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    for (const item of restaurants) {
-      if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
-        addIssue('restaurant_missing_route_coordinate', item.id);
-      }
-      if (!Array.isArray(item.mealSlots) || item.mealSlots.length === 0) {
-        addIssue('restaurant_missing_meal_slots', item.id);
-      }
-      if (
-        !Array.isArray(item.mealTimeWindowsJson) ||
-        item.mealTimeWindowsJson.length === 0
-      ) {
-        addIssue('restaurant_missing_meal_time_windows', item.id);
-      }
-    }
-
     for (const item of hotels) {
       if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
         addIssue('hotel_missing_route_coordinate', item.id);
-      }
-      if (item.foreignerFriendly === false) {
-        addIssue('hotel_not_foreigner_friendly', item.id);
       }
       if (!item.checkInTime?.trim()) {
         addIssue('hotel_missing_check_in_time', item.id);
       }
       if (!item.checkOutTime?.trim()) {
         addIssue('hotel_missing_check_out_time', item.id);
-      }
-      if (item.bookingStatus === 'sold_out') {
-        addIssue('hotel_sold_out', item.id);
-      }
-    }
-
-    for (const airport of airports) {
-      const missingAnchors: string[] = [];
-      if (
-        !this.hasFiniteCoordinatePair(
-          airport.arrivalAnchorLatitude,
-          airport.arrivalAnchorLongitude,
-        )
-      ) {
-        missingAnchors.push('arrival_terminal');
-      }
-      if (
-        !this.hasFiniteCoordinatePair(
-          airport.departureAnchorLatitude,
-          airport.departureAnchorLongitude,
-        )
-      ) {
-        missingAnchors.push('departure_terminal');
-      }
-      pushAnchorMissing(airport.id, 'airport', airport.name, missingAnchors);
-
-      if (
-        !this.hasFiniteCoordinatePair(airport.latitude, airport.longitude) &&
-        missingAnchors.length === 2
-      ) {
-        addIssue('airport_missing_route_coordinate', airport.id);
-      }
-      if (airport.arrivalBufferMinutes === null || airport.arrivalBufferMinutes === undefined) {
-        addIssue('airport_missing_arrival_buffer', airport.id);
-      }
-      if (
-        airport.departureBufferMinutes === null ||
-        airport.departureBufferMinutes === undefined
-      ) {
-        addIssue('airport_missing_departure_buffer', airport.id);
       }
     }
 
@@ -1672,20 +1459,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     return qb.getMany();
   }
 
-  private async loadPublishedRestaurants(
-    city: string,
-    province: string | null,
-  ): Promise<RestaurantPlace[]> {
-    const qb = this.restaurantRepository
-      .createQueryBuilder('restaurant')
-      .where('restaurant."isPublished" = true')
-      .andWhere('LOWER(restaurant.city) = LOWER(:city)', { city });
-    if (province) {
-      qb.andWhere('LOWER(restaurant.province) = LOWER(:province)', { province });
-    }
-    return qb.getMany();
-  }
-
   private async loadPublishedHotels(
     city: string,
     province: string | null,
@@ -1696,21 +1469,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       .andWhere('LOWER(hotel.city) = LOWER(:city)', { city });
     if (province) {
       qb.andWhere('LOWER(hotel.province) = LOWER(:province)', { province });
-    }
-    return qb.getMany();
-  }
-
-  private async loadPublishedAirports(
-    city: string,
-    province: string | null,
-  ): Promise<LocationAirport[]> {
-    const qb = this.airportRepository
-      .createQueryBuilder('airport')
-      .leftJoinAndSelect('airport.city', 'city')
-      .leftJoinAndSelect('city.province', 'province')
-      .where('LOWER(city.name) = LOWER(:city)', { city });
-    if (province) {
-      qb.andWhere('LOWER(province.name) = LOWER(:province)', { province });
     }
     return qb.getMany();
   }

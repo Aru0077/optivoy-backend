@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
 import { LocationAirport } from '../locations/entities/location-airport.entity';
-import { RestaurantPlace } from '../restaurants/entities/restaurant.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
 import { TransitCacheModule } from '../transit-cache/transit-cache.module';
@@ -18,7 +17,6 @@ import { TripPlannerService } from './trip-planner.service';
     TypeOrmModule.forFeature([
       Spot,
       ShoppingPlace,
-      RestaurantPlace,
       HotelPlace,
       LocationAirport,
     ]),

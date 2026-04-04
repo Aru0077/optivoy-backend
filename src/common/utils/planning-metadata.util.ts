@@ -18,21 +18,8 @@ export interface BestVisitWindow extends PlanningTimeRange {
   tag?: string;
 }
 
-export interface MealTimeWindow extends PlanningTimeRange {
-  mealSlot: 'breakfast' | 'lunch' | 'dinner' | 'night_snack';
-}
-
-export type BookingStatus = 'available' | 'limited' | 'sold_out' | 'unknown';
-
 const HHMM_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const MEAL_SLOTS = new Set(['breakfast', 'lunch', 'dinner', 'night_snack']);
-const BOOKING_STATUSES = new Set<BookingStatus>([
-  'available',
-  'limited',
-  'sold_out',
-  'unknown',
-]);
 
 function ensureHm(value: string, label: string): string {
   const normalized = value.trim();
@@ -178,52 +165,6 @@ export function normalizeBestVisitWindows(
       tag: item.tag?.trim() || undefined,
     };
   });
-}
-
-export function normalizeMealTimeWindows(
-  input?: Array<{ mealSlot: string; start: string; end: string }> | null,
-): MealTimeWindow[] {
-  if (!input?.length) {
-    return [];
-  }
-
-  return input.map((item, index) => {
-    const mealSlot = item.mealSlot?.trim();
-    if (!MEAL_SLOTS.has(mealSlot)) {
-      throw new Error(`mealTimeWindowsJson[${index}].mealSlot is invalid.`);
-    }
-    const start = ensureHm(item.start, `mealTimeWindowsJson[${index}].start`);
-    const end = ensureHm(item.end, `mealTimeWindowsJson[${index}].end`);
-    if (compareHm(start, end) >= 0) {
-      throw new Error(`mealTimeWindowsJson[${index}] must have start earlier than end.`);
-    }
-
-    return {
-      mealSlot: mealSlot as MealTimeWindow['mealSlot'],
-      start,
-      end,
-    };
-  });
-}
-
-export function normalizeBookableDates(
-  input?: string[] | null,
-): string[] {
-  return normalizeSpecialDates(input, 'bookableDatesJson');
-}
-
-export function normalizeBookingStatus(
-  input?: string | null,
-): BookingStatus | null {
-  if (input === undefined || input === null) {
-    return null;
-  }
-
-  const normalized = input.trim() as BookingStatus;
-  if (!BOOKING_STATUSES.has(normalized)) {
-    throw new Error('bookingStatus must be one of available, limited, sold_out, unknown.');
-  }
-  return normalized;
 }
 
 export function ensureCoordinatePair(
