@@ -1,10 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import { ArgumentsHost } from '@nestjs/common/interfaces';
 import { HttpErrorFilter } from './http-error.filter';
+import { SystemMessageI18nService } from '../i18n/system-message-i18n.service';
 
 describe('HttpErrorFilter', () => {
   it('should keep custom error code and message', () => {
-    const filter = new HttpErrorFilter();
+    const filter = new HttpErrorFilter({
+      translateSystemMessage: ({ message }: { message?: string | null }) =>
+        message ?? '',
+      translateDetails: (details: unknown) => details,
+    } as SystemMessageI18nService);
     const status = jest.fn().mockReturnThis();
     const json = jest.fn();
 

@@ -31,7 +31,12 @@ export interface UpsertTransitEdgeInput {
   expiresAt?: Date | null;
 }
 
-export type PointMatrixStatus = 'ready' | 'partial' | 'stale' | 'failed' | 'pending';
+export type PointMatrixStatus =
+  | 'ready'
+  | 'partial'
+  | 'stale'
+  | 'failed'
+  | 'pending';
 
 export interface PointMatrixStatusSummary {
   pointId: string;
@@ -112,9 +117,7 @@ export class TransitCacheService {
   async deletePointEdgesByIds(pointIds: string[]): Promise<void> {
     const uniquePointIds = Array.from(
       new Set(
-        pointIds
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0),
+        pointIds.map((item) => item.trim()).filter((item) => item.length > 0),
       ),
     );
     if (uniquePointIds.length === 0) {
@@ -175,7 +178,9 @@ export class TransitCacheService {
     const normalizedCity = city.trim();
     const normalizedProvince = province?.trim() || null;
     const uniquePointIds = Array.from(
-      new Set(pointIds.map((item) => item.trim()).filter((item) => item.length > 0)),
+      new Set(
+        pointIds.map((item) => item.trim()).filter((item) => item.length > 0),
+      ),
     );
 
     if (!normalizedCity || uniquePointIds.length === 0) {
@@ -186,9 +191,7 @@ export class TransitCacheService {
       .createQueryBuilder('cache')
       .where('LOWER(cache.city) = LOWER(:city)', { city: normalizedCity })
       .andWhere(
-        normalizedProvince
-          ? 'LOWER(cache.province) = LOWER(:province)'
-          : '1=1',
+        normalizedProvince ? 'LOWER(cache.province) = LOWER(:province)' : '1=1',
         normalizedProvince ? { province: normalizedProvince } : {},
       )
       .andWhere('cache.status = :status', { status: 'ready' })
@@ -209,7 +212,9 @@ export class TransitCacheService {
     const normalizedCity = city.trim();
     const normalizedProvince = province?.trim() || null;
     const uniquePointIds = Array.from(
-      new Set(pointIds.map((item) => item.trim()).filter((item) => item.length > 0)),
+      new Set(
+        pointIds.map((item) => item.trim()).filter((item) => item.length > 0),
+      ),
     );
 
     if (!normalizedCity || uniquePointIds.length === 0) {
@@ -220,9 +225,7 @@ export class TransitCacheService {
       .createQueryBuilder('cache')
       .where('LOWER(cache.city) = LOWER(:city)', { city: normalizedCity })
       .andWhere(
-        normalizedProvince
-          ? 'LOWER(cache.province) = LOWER(:province)'
-          : '1=1',
+        normalizedProvince ? 'LOWER(cache.province) = LOWER(:province)' : '1=1',
         normalizedProvince ? { province: normalizedProvince } : {},
       )
       .andWhere('cache."fromPointId" IN (:...pointIds)', {
@@ -239,9 +242,7 @@ export class TransitCacheService {
   ): Promise<Record<string, PointMatrixStatusSummary>> {
     const uniquePointIds = Array.from(
       new Set(
-        pointIds
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0),
+        pointIds.map((item) => item.trim()).filter((item) => item.length > 0),
       ),
     );
 
@@ -282,9 +283,7 @@ export class TransitCacheService {
 
     const existingPointIdSet = await this.getExistingPointIdSet(
       Array.from(
-        new Set(
-          rows.flatMap((row) => [row.fromPointId, row.toPointId]),
-        ),
+        new Set(rows.flatMap((row) => [row.fromPointId, row.toPointId])),
       ),
     );
 
@@ -300,10 +299,7 @@ export class TransitCacheService {
       if (summaryMap[row.fromPointId]) {
         relatedPointIds.push(row.fromPointId);
       }
-      if (
-        row.toPointId !== row.fromPointId &&
-        summaryMap[row.toPointId]
-      ) {
+      if (row.toPointId !== row.fromPointId && summaryMap[row.toPointId]) {
         relatedPointIds.push(row.toPointId);
       }
 

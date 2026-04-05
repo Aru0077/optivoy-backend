@@ -1,9 +1,8 @@
+import { OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
-  IsLatitude,
-  IsLongitude,
   IsNumber,
   IsOptional,
   IsString,
@@ -15,33 +14,23 @@ import {
 } from 'class-validator';
 import { BasePlaceCreateDto } from '../../../common/dto/base-place.dto';
 
-export class CreateHotelDto extends BasePlaceCreateDto {
+export class CreateHotelDto extends OmitType(BasePlaceCreateDto, [
+  'introMnMN',
+  'introZhCN',
+  'introEn',
+  'guideMnMN',
+  'guideZhCN',
+  'guideEn',
+  'noticeMnMN',
+  'noticeZhCN',
+  'noticeEn',
+] as const) {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(5)
   starLevel?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
-  arrivalAnchorLatitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
-  arrivalAnchorLongitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
-  departureAnchorLatitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
-  departureAnchorLongitude?: number;
 
   @IsOptional()
   @IsString()

@@ -2,8 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsBoolean,
-  IsLatitude,
-  IsLongitude,
   IsInt,
   IsNumber,
   IsOptional,
@@ -19,26 +17,6 @@ import { BasePlaceUpdateDto } from '../../../common/dto/base-place.dto';
 import { OpeningHoursItemDto } from '../../../common/dto/planning-metadata.dto';
 
 export class UpdateShoppingDto extends BasePlaceUpdateDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
-  arrivalAnchorLatitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
-  arrivalAnchorLongitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
-  departureAnchorLatitude?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
-  departureAnchorLongitude?: number;
-
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(7)

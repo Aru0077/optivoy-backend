@@ -7,27 +7,6 @@ import {
 } from 'typeorm';
 import { decimalNumberTransformer } from '../../../common/database/decimal-number.transformer';
 
-export interface HotelIntroI18n {
-  'zh-CN'?: string;
-  'mn-MN'?: string;
-  'en-US'?: string;
-  [key: string]: string | undefined;
-}
-
-export interface HotelGuideI18n {
-  'zh-CN'?: string;
-  'mn-MN'?: string;
-  'en-US'?: string;
-  [key: string]: string | undefined;
-}
-
-export interface HotelNoticeI18n {
-  'zh-CN'?: string;
-  'mn-MN'?: string;
-  'en-US'?: string;
-  [key: string]: string | undefined;
-}
-
 export interface HotelNameI18n {
   'zh-CN'?: string;
   'mn-MN'?: string;
@@ -74,29 +53,8 @@ export class HotelPlace {
   @Column({ type: 'double precision', nullable: true })
   longitude: number | null;
 
-  @Column({ type: 'double precision', nullable: true })
-  arrivalAnchorLatitude: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  arrivalAnchorLongitude: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  departureAnchorLatitude: number | null;
-
-  @Column({ type: 'double precision', nullable: true })
-  departureAnchorLongitude: number | null;
-
   @Column({ type: 'varchar', length: 500, nullable: true })
   coverImageUrl: string | null;
-
-  @Column({ type: 'jsonb' })
-  introI18n: HotelIntroI18n;
-
-  @Column({ type: 'jsonb', nullable: true })
-  guideI18n: HotelGuideI18n | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  noticeI18n: HotelNoticeI18n | null;
 
   @Column({ type: 'int', nullable: true })
   starLevel: number | null;

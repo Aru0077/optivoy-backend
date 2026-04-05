@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RemoveRestaurantsAndAirportPlanningFields1741862000000
-  implements MigrationInterface
-{
+export class RemoveRestaurantsAndAirportPlanningFields1741862000000 implements MigrationInterface {
   name = 'RemoveRestaurantsAndAirportPlanningFields1741862000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

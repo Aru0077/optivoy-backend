@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddPlanningMetadataFields1741746000000
-  implements MigrationInterface
-{
+export class AddPlanningMetadataFields1741746000000 implements MigrationInterface {
   name = 'AddPlanningMetadataFields1741746000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

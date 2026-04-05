@@ -10,17 +10,7 @@ export interface HotelView {
   latitude: number | null;
   longitude: number | null;
   coverImageUrl: string | null;
-  intro: string;
-  introI18n: Record<string, string | undefined>;
-  guide: string;
-  guideI18n: Record<string, string | undefined>;
-  notice: string;
-  noticeI18n: Record<string, string | undefined>;
   starLevel: number | null;
-  arrivalAnchorLatitude: number | null;
-  arrivalAnchorLongitude: number | null;
-  departureAnchorLatitude: number | null;
-  departureAnchorLongitude: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
   bookingUrl: string | null;

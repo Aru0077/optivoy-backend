@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddMatrixRecomputeJobsTable1741748000000
-  implements MigrationInterface
-{
+export class AddMatrixRecomputeJobsTable1741748000000 implements MigrationInterface {
   name = 'AddMatrixRecomputeJobsTable1741748000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

@@ -29,10 +29,6 @@ export interface PlannerPointView {
   reservationRequired?: boolean;
   queueProfileJson?: QueueProfile | null;
   hasFoodCourt?: boolean;
-  arrivalAnchorLatitude?: number | null;
-  arrivalAnchorLongitude?: number | null;
-  departureAnchorLatitude?: number | null;
-  departureAnchorLongitude?: number | null;
   latitude: number | null;
   longitude: number | null;
   coverImageUrl: string | null;
@@ -45,10 +41,6 @@ export interface PlannerHotelCandidate {
   province: string;
   city: string;
   starLevel: number | null;
-  arrivalAnchorLatitude: number | null;
-  arrivalAnchorLongitude: number | null;
-  departureAnchorLatitude: number | null;
-  departureAnchorLongitude: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
   bookingUrl: string | null;
@@ -119,12 +111,6 @@ export interface GeneratedTripDay {
   date: string;
   hotel: GeneratedTripHotelStop;
   sequence: GeneratedTripSequenceItem[];
-  lunchBreak?: {
-    durationMinutes: number;
-    note: string;
-  } | null;
-  legs: GeneratedTripLeg[];
-  points: GeneratedTripPoint[];
 }
 
 export interface GeneratedTripResult {

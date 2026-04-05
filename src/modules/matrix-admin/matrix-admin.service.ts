@@ -7,7 +7,9 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { I18nService } from 'nestjs-i18n';
 import { Repository } from 'typeorm';
+import { SystemMessageI18nService } from '../../common/i18n/system-message-i18n.service';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
 import { Spot } from '../spots/entities/spot.entity';
@@ -46,10 +48,6 @@ interface MatrixNode {
   cityI18n?: Record<string, string | undefined> | null;
   latitude: number;
   longitude: number;
-  arrivalAnchorLatitude?: number;
-  arrivalAnchorLongitude?: number;
-  departureAnchorLatitude?: number;
-  departureAnchorLongitude?: number;
   entryLatitude?: number;
   entryLongitude?: number;
   exitLatitude?: number;
@@ -95,6 +93,7 @@ export interface MatrixModeCoverageSummary {
   readyEdgeCount: number;
   transitReadyEdges: number;
   transitFallbackEdges: number;
+  transitNoRouteEdges: number;
   drivingMinutesPresent: number;
   walkingMetersPresent: number;
   walkingMinutesPresent: number;
@@ -107,6 +106,7 @@ export interface MatrixModeCoverageSummary {
   walkingCoverage: number;
   walkingMinutesCoverage: number;
   fallbackEdgeRatio: number;
+  noRouteEdgeRatio: number;
 }
 
 export interface MatrixAnchorMissingItem {
@@ -187,6 +187,7 @@ export interface MatrixRecomputeJobItem {
   processedEdges: number;
   transitReadyEdges: number;
   transitFallbackEdges: number;
+  transitNoRouteEdges: number;
   drivingReadyEdges: number;
   walkingReadyEdges: number;
   walkingMinutesReadyEdges: number;
@@ -217,6 +218,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(MatrixRecomputeJob)
     private readonly matrixRecomputeJobRepository: Repository<MatrixRecomputeJob>,
     private readonly transitCachePrecomputeService: TransitCachePrecomputeService,
+    private readonly i18n: I18nService,
+    private readonly systemMessageI18nService: SystemMessageI18nService,
   ) {}
 
   onModuleInit(): void {
@@ -300,6 +303,35 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async removeJob(jobId: string): Promise<void> {
+    const normalizedJobId = this.normalizeRequired(jobId, 'jobId');
+    if (!(await this.ensureMatrixJobsTableReady())) {
+      throw new BadRequestException({
+        code: 'MATRIX_RECOMPUTE_JOB_TABLE_UNAVAILABLE',
+        message: 'Matrix recompute jobs table is unavailable.',
+      });
+    }
+
+    const job = await this.matrixRecomputeJobRepository.findOne({
+      where: { id: normalizedJobId },
+    });
+    if (!job) {
+      throw new NotFoundException({
+        code: 'MATRIX_RECOMPUTE_JOB_NOT_FOUND',
+        message: 'Matrix recompute job not found.',
+      });
+    }
+
+    if (job.status === 'pending' || job.status === 'running') {
+      throw new BadRequestException({
+        code: 'MATRIX_RECOMPUTE_JOB_DELETE_FORBIDDEN',
+        message: 'Running or pending matrix jobs cannot be deleted.',
+      });
+    }
+
+    await this.matrixRecomputeJobRepository.delete({ id: normalizedJobId });
+  }
+
   async recomputeCity(dto: RecomputeCityMatrixDto): Promise<{
     accepted: true;
     job: MatrixRecomputeJobItem;
@@ -331,12 +363,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
 
     const hasCenterCoordinate =
       Number.isFinite(point.latitude) && Number.isFinite(point.longitude);
-    const hasArrivalAnchorCoordinate =
-      Number.isFinite(point.arrivalAnchorLatitude) &&
-      Number.isFinite(point.arrivalAnchorLongitude);
-    const hasDepartureAnchorCoordinate =
-      Number.isFinite(point.departureAnchorLatitude) &&
-      Number.isFinite(point.departureAnchorLongitude);
     const hasSpotEntryExitCoordinate =
       point.pointType === 'spot' &&
       Number.isFinite(point.entryLatitude) &&
@@ -345,13 +371,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       Number.isFinite(point.exitLongitude);
 
     const coordinateInvalid =
-      point.pointType === 'spot'
-        ? !hasSpotEntryExitCoordinate
-        : !(
-            hasCenterCoordinate ||
-            hasArrivalAnchorCoordinate ||
-            hasDepartureAnchorCoordinate
-          );
+      point.pointType === 'spot' ? !hasSpotEntryExitCoordinate : !hasCenterCoordinate;
 
     if (coordinateInvalid) {
       throw new BadRequestException({
@@ -403,6 +423,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       processedEdges: 0,
       transitReadyEdges: 0,
       transitFallbackEdges: 0,
+      transitNoRouteEdges: 0,
       drivingReadyEdges: 0,
       walkingReadyEdges: 0,
       walkingMinutesReadyEdges: 0,
@@ -425,6 +446,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
   }
 
   private toJobItem(job: MatrixRecomputeJob): MatrixRecomputeJobItem {
+    const lang = this.systemMessageI18nService.getCurrentLang();
+
     return {
       id: job.id,
       scope: job.scope,
@@ -438,11 +461,18 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       processedEdges: job.processedEdges,
       transitReadyEdges: job.transitReadyEdges,
       transitFallbackEdges: job.transitFallbackEdges,
+      transitNoRouteEdges: job.transitNoRouteEdges,
       drivingReadyEdges: job.drivingReadyEdges,
       walkingReadyEdges: job.walkingReadyEdges,
       walkingMinutesReadyEdges: job.walkingMinutesReadyEdges,
-      message: job.message,
-      lastError: job.lastError,
+      message: this.resolveJobMessage(job, lang),
+      lastError:
+        job.lastError && lang
+          ? this.systemMessageI18nService.translateSystemMessage({
+              message: job.lastError,
+              lang,
+            })
+          : job.lastError,
       startedAt: job.startedAt ? job.startedAt.toISOString() : null,
       finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
       createdAt: job.createdAt.toISOString(),
@@ -509,6 +539,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         processedEdges: 0,
         transitReadyEdges: 0,
         transitFallbackEdges: 0,
+        transitNoRouteEdges: 0,
         drivingReadyEdges: 0,
         walkingReadyEdges: 0,
         walkingMinutesReadyEdges: 0,
@@ -546,35 +577,38 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       await this.matrixRecomputeJobRepository.save(job);
 
       if (job.scope === 'city') {
-        await this.transitCachePrecomputeService.recomputeCity(job.city, job.province, {
-          modes: job.modes,
-          onChunkProgress: (chunk) => this.applyJobChunkProgress(job.id, chunk),
-        });
-      } else {
-        const point = await this.resolvePointById(job.pointId as string);
-        const summary = await this.transitCachePrecomputeService.recomputePointNeighborhood(
-          {
-            id: point.id,
-            pointType: point.pointType,
-            city: point.city,
-            province: point.province,
-            cityI18n: point.cityI18n ?? null,
-            latitude: point.latitude,
-            longitude: point.longitude,
-            arrivalAnchorLatitude: point.arrivalAnchorLatitude,
-            arrivalAnchorLongitude: point.arrivalAnchorLongitude,
-            departureAnchorLatitude: point.departureAnchorLatitude,
-            departureAnchorLongitude: point.departureAnchorLongitude,
-            entryLatitude: point.entryLatitude,
-            entryLongitude: point.entryLongitude,
-            exitLatitude: point.exitLatitude,
-            exitLongitude: point.exitLongitude,
-          },
+        await this.transitCachePrecomputeService.recomputeCity(
+          job.city,
+          job.province,
           {
             modes: job.modes,
-            onChunkProgress: (chunk) => this.applyJobChunkProgress(job.id, chunk),
+            onChunkProgress: (chunk) =>
+              this.applyJobChunkProgress(job.id, chunk),
           },
         );
+      } else {
+        const point = await this.resolvePointById(job.pointId as string);
+        const summary =
+          await this.transitCachePrecomputeService.recomputePointNeighborhood(
+            {
+              id: point.id,
+              pointType: point.pointType,
+              city: point.city,
+              province: point.province,
+              cityI18n: point.cityI18n ?? null,
+              latitude: point.latitude,
+              longitude: point.longitude,
+              entryLatitude: point.entryLatitude,
+              entryLongitude: point.entryLongitude,
+              exitLatitude: point.exitLatitude,
+              exitLongitude: point.exitLongitude,
+            },
+            {
+              modes: job.modes,
+              onChunkProgress: (chunk) =>
+                this.applyJobChunkProgress(job.id, chunk),
+            },
+          );
         job.message = this.buildPointRecomputeMessage(summary);
       }
 
@@ -583,8 +617,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       });
       refreshed.status = this.resolveMatrixJobStatus(refreshed);
       refreshed.message =
-        refreshed.message ||
-        this.buildJobCompletionMessage(refreshed);
+        refreshed.message || this.buildJobCompletionMessage(refreshed);
       refreshed.finishedAt = new Date();
       await this.matrixRecomputeJobRepository.save(refreshed);
     } catch (error) {
@@ -608,6 +641,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       totalEdges: number;
       transitReadyEdges: number;
       transitFallbackEdges: number;
+      transitNoRouteEdges: number;
       drivingReadyEdges: number;
       walkingReadyEdges: number;
       walkingMinutesReadyEdges: number;
@@ -622,6 +656,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
           `"transitReadyEdges" + ${chunk.transitReadyEdges}`,
         transitFallbackEdges: () =>
           `"transitFallbackEdges" + ${chunk.transitFallbackEdges}`,
+        transitNoRouteEdges: () =>
+          `"transitNoRouteEdges" + ${chunk.transitNoRouteEdges}`,
         drivingReadyEdges: () =>
           `"drivingReadyEdges" + ${chunk.drivingReadyEdges}`,
         walkingReadyEdges: () =>
@@ -679,6 +715,9 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       if (job.transitFallbackEdges > 0) {
         segments.push(`fallback ${job.transitFallbackEdges}/${job.totalEdges}`);
       }
+      if (job.transitNoRouteEdges > 0) {
+        segments.push(`no_route ${job.transitNoRouteEdges}/${job.totalEdges}`);
+      }
     }
     if (job.modes.includes('driving')) {
       segments.push(`驾车 ${job.drivingReadyEdges}/${job.totalEdges}`);
@@ -689,6 +728,124 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     return segments.length > 0
       ? segments.join('，')
       : 'Matrix recompute job completed.';
+  }
+
+  private resolveJobMessage(
+    job: MatrixRecomputeJob,
+    lang?: string,
+  ): string | null {
+    if (!lang) {
+      return job.message;
+    }
+
+    if (job.status === 'pending') {
+      const modes = this.formatJobModes(job, lang);
+      return this.i18n.translate(
+        job.scope === 'point'
+          ? 'system.MATRIX_POINT_RECOMPUTE_JOB_QUEUED_WITH_MODES'
+          : 'system.MATRIX_RECOMPUTE_JOB_QUEUED_WITH_MODES',
+        {
+          lang,
+          args: { modes },
+          defaultValue: job.message ?? 'Matrix recompute job queued.',
+        },
+      );
+    }
+
+    if (job.status === 'running') {
+      return this.i18n.translate('system.MATRIX_JOB_PROCESSING', {
+        lang,
+        defaultValue: 'Processing...',
+      });
+    }
+
+    if (job.status === 'failed') {
+      return this.i18n.translate('system.MATRIX_RECOMPUTE_JOB_FAILED', {
+        lang,
+        defaultValue: job.message ?? 'Matrix recompute job failed.',
+      });
+    }
+
+    const segments: string[] = [];
+    if (job.modes.includes('transit')) {
+      segments.push(
+        this.i18n.translate('system.MATRIX_TRANSIT_READY_SEGMENT', {
+          lang,
+          args: {
+            ready: job.transitReadyEdges,
+            total: job.totalEdges,
+          },
+          defaultValue: `Transit ${job.transitReadyEdges}/${job.totalEdges}`,
+        }),
+      );
+      if (job.transitFallbackEdges > 0) {
+        segments.push(
+          this.i18n.translate('system.MATRIX_TRANSIT_FALLBACK_SEGMENT', {
+            lang,
+            args: {
+              ready: job.transitFallbackEdges,
+              total: job.totalEdges,
+            },
+            defaultValue: `fallback ${job.transitFallbackEdges}/${job.totalEdges}`,
+          }),
+        );
+      }
+      if (job.transitNoRouteEdges > 0) {
+        segments.push(
+          this.i18n.translate('system.MATRIX_TRANSIT_NO_ROUTE_SEGMENT', {
+            lang,
+            args: {
+              ready: job.transitNoRouteEdges,
+              total: job.totalEdges,
+            },
+            defaultValue: `no_route ${job.transitNoRouteEdges}/${job.totalEdges}`,
+          }),
+        );
+      }
+    }
+    if (job.modes.includes('driving')) {
+      segments.push(
+        this.i18n.translate('system.MATRIX_DRIVING_READY_SEGMENT', {
+          lang,
+          args: {
+            ready: job.drivingReadyEdges,
+            total: job.totalEdges,
+          },
+          defaultValue: `Driving ${job.drivingReadyEdges}/${job.totalEdges}`,
+        }),
+      );
+    }
+    if (job.modes.includes('walking')) {
+      segments.push(
+        this.i18n.translate('system.MATRIX_WALKING_READY_SEGMENT', {
+          lang,
+          args: {
+            ready: job.walkingReadyEdges,
+            total: job.totalEdges,
+          },
+          defaultValue: `Walking ${job.walkingReadyEdges}/${job.totalEdges}`,
+        }),
+      );
+    }
+
+    if (segments.length > 0) {
+      return segments.join(', ');
+    }
+
+    return this.i18n.translate('system.MATRIX_RECOMPUTE_JOB_COMPLETED', {
+      lang,
+      defaultValue: 'Matrix recompute job completed.',
+    });
+  }
+
+  private formatJobModes(job: MatrixRecomputeJob, lang: string): string {
+    const modeLabels = job.modes.map((mode) =>
+      this.i18n.translate(`system.MATRIX_MODE_${mode.toUpperCase()}`, {
+        lang,
+        defaultValue: mode,
+      }),
+    );
+    return modeLabels.join(' / ');
   }
 
   private async computeCityStatus(
@@ -711,7 +868,9 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     };
 
     const expectedDirected =
-      uniqueNodeIds.length <= 1 ? 0 : uniqueNodeIds.length * (uniqueNodeIds.length - 1);
+      uniqueNodeIds.length <= 1
+        ? 0
+        : uniqueNodeIds.length * (uniqueNodeIds.length - 1);
 
     let readyDirected = 0;
     let staleDirected = 0;
@@ -724,6 +883,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
 
     let transitReadyEdges = 0;
     let transitFallbackEdges = 0;
+    let transitNoRouteEdges = 0;
     let drivingMinutesPresent = 0;
     let walkingMetersPresent = 0;
     let walkingMinutesPresent = 0;
@@ -768,6 +928,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
               transitReadyEdges += 1;
             } else if (edge.transitProviderStatus === 'fallback') {
               transitFallbackEdges += 1;
+            } else if (edge.transitProviderStatus === 'no_route') {
+              transitNoRouteEdges += 1;
             }
             if (
               edge.drivingMinutes > 0 &&
@@ -802,7 +964,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
 
     readyDirected = readyDirectedSet.size;
 
-    const expectedUndirected = uniqueNodeIds.length <= 1 ? 0 : (uniqueNodeIds.length * (uniqueNodeIds.length - 1)) / 2;
+    const expectedUndirected =
+      uniqueNodeIds.length <= 1
+        ? 0
+        : (uniqueNodeIds.length * (uniqueNodeIds.length - 1)) / 2;
 
     let readyUndirected = 0;
     const missingEdgesSample: MatrixMissingEdgeItem[] = [];
@@ -866,6 +1031,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       readyEdgeCount: readyDirected,
       transitReadyEdges,
       transitFallbackEdges,
+      transitNoRouteEdges,
       drivingMinutesPresent,
       walkingMetersPresent,
       walkingMinutesPresent,
@@ -876,8 +1042,12 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       transitCoverage: this.toCoverage(readyDirected, transitReadyEdges),
       drivingCoverage: this.toCoverage(readyDirected, drivingMinutesPresent),
       walkingCoverage: this.toCoverage(readyDirected, walkingMetersPresent),
-      walkingMinutesCoverage: this.toCoverage(readyDirected, walkingMinutesPresent),
+      walkingMinutesCoverage: this.toCoverage(
+        readyDirected,
+        walkingMinutesPresent,
+      ),
       fallbackEdgeRatio: this.toCoverage(readyDirected, transitFallbackEdges),
+      noRouteEdgeRatio: this.toCoverage(readyDirected, transitNoRouteEdges),
     };
 
     const diagnostics = await this.buildCityDiagnostics(city, province);
@@ -995,9 +1165,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         .andWhere('spot."exitLatitude" IS NOT NULL')
         .andWhere('spot."exitLongitude" IS NOT NULL')
         .andWhere(
-          province
-            ? 'LOWER(spot.province) = LOWER(:province)'
-            : '1=1',
+          province ? 'LOWER(spot.province) = LOWER(:province)' : '1=1',
           province ? { province } : {},
         )
         .getRawMany<{
@@ -1015,18 +1183,15 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
           'shopping.name AS name',
           'shopping.city AS city',
           'shopping.province AS province',
-          'COALESCE(shopping."arrivalAnchorLatitude", shopping.latitude) AS latitude',
-          'COALESCE(shopping."arrivalAnchorLongitude", shopping.longitude) AS longitude',
+          'shopping.latitude AS latitude',
+          'shopping.longitude AS longitude',
         ])
         .where('shopping."isPublished" = true')
         .andWhere('LOWER(shopping.city) = LOWER(:city)', { city })
+        .andWhere('shopping.latitude IS NOT NULL')
+        .andWhere('shopping.longitude IS NOT NULL')
         .andWhere(
-          '(shopping."arrivalAnchorLatitude" IS NOT NULL AND shopping."arrivalAnchorLongitude" IS NOT NULL) OR (shopping.latitude IS NOT NULL AND shopping.longitude IS NOT NULL)',
-        )
-        .andWhere(
-          province
-            ? 'LOWER(shopping.province) = LOWER(:province)'
-            : '1=1',
+          province ? 'LOWER(shopping.province) = LOWER(:province)' : '1=1',
           province ? { province } : {},
         )
         .getRawMany<{
@@ -1044,18 +1209,15 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
           'hotel.name AS name',
           'hotel.city AS city',
           'hotel.province AS province',
-          'COALESCE(hotel."arrivalAnchorLatitude", hotel.latitude) AS latitude',
-          'COALESCE(hotel."arrivalAnchorLongitude", hotel.longitude) AS longitude',
+          'hotel.latitude AS latitude',
+          'hotel.longitude AS longitude',
         ])
         .where('hotel."isPublished" = true')
         .andWhere('LOWER(hotel.city) = LOWER(:city)', { city })
+        .andWhere('hotel.latitude IS NOT NULL')
+        .andWhere('hotel.longitude IS NOT NULL')
         .andWhere(
-          '(hotel."arrivalAnchorLatitude" IS NOT NULL AND hotel."arrivalAnchorLongitude" IS NOT NULL) OR (hotel.latitude IS NOT NULL AND hotel.longitude IS NOT NULL)',
-        )
-        .andWhere(
-          province
-            ? 'LOWER(hotel.province) = LOWER(:province)'
-            : '1=1',
+          province ? 'LOWER(hotel.province) = LOWER(:province)' : '1=1',
           province ? { province } : {},
         )
         .getRawMany<{
@@ -1136,9 +1298,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         .createQueryBuilder('shopping')
         .select(['shopping.city AS city', 'shopping.province AS province'])
         .where('shopping."isPublished" = true')
-        .andWhere(
-          '(shopping."arrivalAnchorLatitude" IS NOT NULL AND shopping."arrivalAnchorLongitude" IS NOT NULL) OR (shopping.latitude IS NOT NULL AND shopping.longitude IS NOT NULL)',
-        )
+        .andWhere('shopping.latitude IS NOT NULL')
+        .andWhere('shopping.longitude IS NOT NULL')
         .groupBy('shopping.city')
         .addGroupBy('shopping.province')
         .getRawMany<MatrixCityRef>(),
@@ -1146,9 +1307,8 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         .createQueryBuilder('hotel')
         .select(['hotel.city AS city', 'hotel.province AS province'])
         .where('hotel."isPublished" = true')
-        .andWhere(
-          '(hotel."arrivalAnchorLatitude" IS NOT NULL AND hotel."arrivalAnchorLongitude" IS NOT NULL) OR (hotel.latitude IS NOT NULL AND hotel.longitude IS NOT NULL)',
-        )
+        .andWhere('hotel.latitude IS NOT NULL')
+        .andWhere('hotel.longitude IS NOT NULL')
         .groupBy('hotel.city')
         .addGroupBy('hotel.province')
         .getRawMany<MatrixCityRef>(),
@@ -1175,12 +1335,18 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private matchCityRef(item: MatrixCityRef, query: ListMatrixCitiesQueryDto): boolean {
+  private matchCityRef(
+    item: MatrixCityRef,
+    query: ListMatrixCitiesQueryDto,
+  ): boolean {
     const queryProvince = this.normalizeOptional(query.province);
     const queryCity = this.normalizeOptional(query.city);
     const keyword = this.normalizeOptional(query.q)?.toLowerCase() || null;
 
-    if (queryProvince && (item.province ?? '').toLowerCase() !== queryProvince.toLowerCase()) {
+    if (
+      queryProvince &&
+      (item.province ?? '').toLowerCase() !== queryProvince.toLowerCase()
+    ) {
       return false;
     }
     if (queryCity && item.city.toLowerCase() !== queryCity.toLowerCase()) {
@@ -1190,7 +1356,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       return true;
     }
 
-    const searchText = `${item.city} ${(item.province ?? '')}`.toLowerCase();
+    const searchText = `${item.city} ${item.province ?? ''}`.toLowerCase();
     return searchText.includes(keyword);
   }
 
@@ -1227,10 +1393,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         cityI18n: shopping.cityI18n,
         latitude: shopping.latitude as number,
         longitude: shopping.longitude as number,
-        arrivalAnchorLatitude: shopping.arrivalAnchorLatitude ?? undefined,
-        arrivalAnchorLongitude: shopping.arrivalAnchorLongitude ?? undefined,
-        departureAnchorLatitude: shopping.departureAnchorLatitude ?? undefined,
-        departureAnchorLongitude: shopping.departureAnchorLongitude ?? undefined,
       };
     }
     if (hotel) {
@@ -1243,10 +1405,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
         cityI18n: hotel.cityI18n,
         latitude: hotel.latitude as number,
         longitude: hotel.longitude as number,
-        arrivalAnchorLatitude: hotel.arrivalAnchorLatitude ?? undefined,
-        arrivalAnchorLongitude: hotel.arrivalAnchorLongitude ?? undefined,
-        departureAnchorLatitude: hotel.departureAnchorLatitude ?? undefined,
-        departureAnchorLongitude: hotel.departureAnchorLongitude ?? undefined,
       };
     }
 
@@ -1283,7 +1441,11 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       return 'Point neighborhood recomputed, but there were no eligible edges.';
     }
 
-    if (summary.transitReadyEdges === 0 && summary.transitFallbackEdges > 0) {
+    if (
+      summary.transitReadyEdges === 0 &&
+      summary.transitFallbackEdges > 0 &&
+      summary.transitNoRouteEdges === 0
+    ) {
       const candidateText =
         summary.transitCityCandidates.length > 0
           ? ` tried city=${summary.transitCityCandidates.join(' / ')}.`
@@ -1291,7 +1453,7 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       return `Point neighborhood recomputed, but all transit edges still fell back.${candidateText}`;
     }
 
-    return `Point neighborhood recomputed. transit ready ${summary.transitReadyEdges}/${summary.totalEdges}, fallback ${summary.transitFallbackEdges}/${summary.totalEdges}.`;
+    return `Point neighborhood recomputed. transit ready ${summary.transitReadyEdges}/${summary.totalEdges}, fallback ${summary.transitFallbackEdges}/${summary.totalEdges}, no_route ${summary.transitNoRouteEdges}/${summary.totalEdges}.`;
   }
 
   private buildEdgeKey(fromPointId: string, toPointId: string): string {
@@ -1342,7 +1504,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
 
     const anchorMissingSample: MatrixAnchorMissingItem[] = [];
     let anchorMissingCount = 0;
-    const solverIssueMap = new Map<string, { count: number; samples: string[] }>();
+    const solverIssueMap = new Map<
+      string,
+      { count: number; samples: string[] }
+    >();
 
     const pushAnchorMissing = (
       pointId: string,
@@ -1375,17 +1540,24 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
 
     for (const spot of spots) {
       const missingAnchors: string[] = [];
-      if (!this.hasFiniteCoordinatePair(spot.entryLatitude, spot.entryLongitude)) {
+      if (
+        !this.hasFiniteCoordinatePair(spot.entryLatitude, spot.entryLongitude)
+      ) {
         missingAnchors.push('entry');
         addIssue('spot_missing_entry_coordinate', spot.id);
       }
-      if (!this.hasFiniteCoordinatePair(spot.exitLatitude, spot.exitLongitude)) {
+      if (
+        !this.hasFiniteCoordinatePair(spot.exitLatitude, spot.exitLongitude)
+      ) {
         missingAnchors.push('exit');
         addIssue('spot_missing_exit_coordinate', spot.id);
       }
       pushAnchorMissing(spot.id, 'spot', spot.name, missingAnchors);
 
-      if (!Array.isArray(spot.openingHoursJson) || spot.openingHoursJson.length === 0) {
+      if (
+        !Array.isArray(spot.openingHoursJson) ||
+        spot.openingHoursJson.length === 0
+      ) {
         addIssue('spot_missing_opening_hours', spot.id);
       }
       if (!spot.lastEntryTime?.trim()) {
@@ -1397,7 +1569,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
         addIssue('shopping_missing_route_coordinate', item.id);
       }
-      if (!Array.isArray(item.openingHoursJson) || item.openingHoursJson.length === 0) {
+      if (
+        !Array.isArray(item.openingHoursJson) ||
+        item.openingHoursJson.length === 0
+      ) {
         addIssue('shopping_missing_opening_hours', item.id);
       }
     }
@@ -1434,7 +1609,10 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async loadPublishedSpots(city: string, province: string | null): Promise<Spot[]> {
+  private async loadPublishedSpots(
+    city: string,
+    province: string | null,
+  ): Promise<Spot[]> {
     const qb = this.spotRepository
       .createQueryBuilder('spot')
       .where('spot."isPublished" = true')

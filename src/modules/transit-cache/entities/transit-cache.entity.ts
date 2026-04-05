@@ -9,13 +9,14 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type TransitCachePointType =
-  | 'spot'
-  | 'shopping'
-  | 'hotel';
+export type TransitCachePointType = 'spot' | 'shopping' | 'hotel';
 
 export type TransitCacheStatus = 'ready' | 'stale' | 'failed';
-export type TransitProviderStatus = 'ready' | 'fallback' | 'failed';
+export type TransitProviderStatus =
+  | 'ready'
+  | 'fallback'
+  | 'no_route'
+  | 'failed';
 
 @Entity('transit_cache')
 @Unique('UQ_transit_cache_city_from_to', ['city', 'fromPointId', 'toPointId'])

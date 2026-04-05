@@ -36,9 +36,4 @@ export class GenerateItineraryDto {
   @IsString()
   @IsIn(['single', 'smart'])
   hotelStrategy: 'single' | 'smart';
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['auto', 'off'])
-  mealPolicy: 'auto' | 'off' = 'auto';
 }

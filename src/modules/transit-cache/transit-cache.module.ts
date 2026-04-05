@@ -10,14 +10,17 @@ import { TransitCacheService } from './transit-cache.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      TransitCache,
-      Spot,
-      ShoppingPlace,
-      HotelPlace,
-    ]),
+    TypeOrmModule.forFeature([TransitCache, Spot, ShoppingPlace, HotelPlace]),
   ],
-  providers: [TransitCacheService, AmapTransitClient, TransitCachePrecomputeService],
-  exports: [TransitCacheService, TransitCachePrecomputeService, AmapTransitClient],
+  providers: [
+    TransitCacheService,
+    AmapTransitClient,
+    TransitCachePrecomputeService,
+  ],
+  exports: [
+    TransitCacheService,
+    TransitCachePrecomputeService,
+    AmapTransitClient,
+  ],
 })
 export class TransitCacheModule {}

@@ -1,5 +1,8 @@
 import dataSource from '../../../database/data-source';
-import { latestClosingTime, type OpeningHoursRule } from '../../../common/utils/planning-metadata.util';
+import {
+  latestClosingTime,
+  type OpeningHoursRule,
+} from '../../../common/utils/planning-metadata.util';
 import { ShoppingPlace } from '../../shopping/entities/shopping.entity';
 import { Spot } from '../../spots/entities/spot.entity';
 
@@ -36,7 +39,9 @@ function hasOpeningHours(input?: OpeningHoursRule[] | null): boolean {
   return Array.isArray(input) && input.length > 0;
 }
 
-function deriveLastEntryTime(openingHoursJson: OpeningHoursRule[]): string | null {
+function deriveLastEntryTime(
+  openingHoursJson: OpeningHoursRule[],
+): string | null {
   const latestClose = latestClosingTime(openingHoursJson);
   if (!latestClose) {
     return null;

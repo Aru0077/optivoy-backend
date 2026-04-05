@@ -455,7 +455,6 @@ export class AirportCsvImportService {
         const staleIds = staleAirports.map((item) => item.id);
         await airportRepo.delete(staleIds);
         deleted = staleAirports.length;
-
       }
 
       return {

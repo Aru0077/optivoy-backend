@@ -12,23 +12,47 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpErrorFilter } from './common/filters/http-error.filter';
+import { I18nResponseMessageInterceptor } from './common/interceptors/i18n-response-message.interceptor';
 import { AppConfig } from './config/app.config';
 import { initializeTracing } from './observability/tracing';
+import { ValidationIssueDetail } from './common/i18n/system-message.constants';
+
+function flattenValidationIssues(
+  errors: ValidationError[],
+  parentPath?: string,
+): ValidationIssueDetail[] {
+  return errors.flatMap((error) => {
+    const field = parentPath
+      ? `${parentPath}.${error.property}`
+      : error.property;
+    const current = Object.entries(error.constraints ?? {}).map(
+      ([constraint, message]) => ({
+        field,
+        constraint,
+        message,
+        value: error.value,
+      }),
+    );
+    const nested = flattenValidationIssues(error.children ?? [], field);
+    return [...current, ...nested];
+  });
+}
 
 async function bootstrap(): Promise<void> {
   initializeTracing();
   const app = await NestFactory.create(AppModule);
-  app.useGlobalFilters(new HttpErrorFilter());
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalFilters(app.get(HttpErrorFilter));
+  app.useGlobalInterceptors(
+    app.get(LoggingInterceptor),
+    app.get(I18nResponseMessageInterceptor),
+  );
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
       exceptionFactory: (errors: ValidationError[]) => {
-        const details = errors.flatMap((error) =>
-          Object.values(error.constraints ?? {}),
-        );
+        const details = flattenValidationIssues(errors);
         return new BadRequestException({
           code: 'VALIDATION_FAILED',
           message: 'Request payload validation failed',

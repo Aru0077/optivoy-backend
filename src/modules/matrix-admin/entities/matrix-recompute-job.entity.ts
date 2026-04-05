@@ -20,7 +20,11 @@ export type MatrixRecomputeJobStatus =
 
 @Entity('matrix_recompute_jobs')
 @Index('IDX_matrix_recompute_jobs_status_created', ['status', 'createdAt'])
-@Index('IDX_matrix_recompute_jobs_city_province_created', ['city', 'province', 'createdAt'])
+@Index('IDX_matrix_recompute_jobs_city_province_created', [
+  'city',
+  'province',
+  'createdAt',
+])
 export class MatrixRecomputeJob {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -57,6 +61,9 @@ export class MatrixRecomputeJob {
 
   @Column({ type: 'int', default: 0 })
   transitFallbackEdges: number;
+
+  @Column({ type: 'int', default: 0 })
+  transitNoRouteEdges: number;
 
   @Column({ type: 'int', default: 0 })
   drivingReadyEdges: number;

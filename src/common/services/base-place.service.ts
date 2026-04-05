@@ -31,6 +31,21 @@ export interface BasePlaceCreatePayload {
   noticeEn: string;
 }
 
+export interface BasePlaceCoreCreatePayload {
+  nameZhCN: string;
+  nameMnMN: string;
+  nameEn: string;
+  province: string;
+  provinceMnMN: string;
+  provinceZhCN: string;
+  city: string;
+  cityMnMN: string;
+  cityZhCN: string;
+  latitude?: number;
+  longitude?: number;
+  coverImageUrl?: string;
+}
+
 export interface BasePlaceUpdatePayload {
   nameZhCN?: string;
   nameMnMN?: string;
@@ -56,6 +71,22 @@ export interface BasePlaceUpdatePayload {
   isPublished?: boolean;
 }
 
+export interface BasePlaceCoreUpdatePayload {
+  nameZhCN?: string;
+  nameMnMN?: string;
+  nameEn?: string;
+  province?: string;
+  provinceMnMN?: string;
+  provinceZhCN?: string;
+  city?: string;
+  cityMnMN?: string;
+  cityZhCN?: string;
+  latitude?: number;
+  longitude?: number;
+  coverImageUrl?: string;
+  isPublished?: boolean;
+}
+
 export interface BasePlaceEntity {
   name: string;
   nameI18n: Record<string, string | undefined> | null;
@@ -67,14 +98,16 @@ export interface BasePlaceEntity {
   latitude?: number | null;
   longitude?: number | null;
   coverImageUrl: string | null;
-  introI18n: Record<string, string | undefined>;
-  guideI18n: Record<string, string | undefined> | null;
-  noticeI18n: Record<string, string | undefined> | null;
+  introI18n?: Record<string, string | undefined>;
+  guideI18n?: Record<string, string | undefined> | null;
+  noticeI18n?: Record<string, string | undefined> | null;
   isPublished: boolean;
 }
 
 export abstract class BasePlaceService<T extends BasePlaceEntity> {
-  protected buildBaseCreatePayload(dto: BasePlaceCreatePayload): Partial<T> {
+  protected buildBaseCoreCreatePayload(
+    dto: BasePlaceCoreCreatePayload,
+  ): Partial<T> {
     const provinceEn = dto.province.trim();
     const provinceMn = dto.provinceMnMN.trim();
     const provinceZh = dto.provinceZhCN.trim();
@@ -107,6 +140,12 @@ export abstract class BasePlaceService<T extends BasePlaceEntity> {
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       coverImageUrl: dto.coverImageUrl?.trim() || null,
+    } as unknown as Partial<T>;
+  }
+
+  protected buildBaseCreatePayload(dto: BasePlaceCreatePayload): Partial<T> {
+    return {
+      ...this.buildBaseCoreCreatePayload(dto),
       introI18n: {
         'zh-CN': dto.introZhCN.trim(),
         'mn-MN': dto.introMnMN.trim(),
@@ -125,7 +164,7 @@ export abstract class BasePlaceService<T extends BasePlaceEntity> {
     } as unknown as Partial<T>;
   }
 
-  protected applyBaseUpdates(entity: T, dto: BasePlaceUpdatePayload): void {
+  protected applyBaseCoreUpdates(entity: T, dto: BasePlaceCoreUpdatePayload): void {
     if (
       dto.nameZhCN !== undefined ||
       dto.nameMnMN !== undefined ||
@@ -185,6 +224,14 @@ export abstract class BasePlaceService<T extends BasePlaceEntity> {
       entity.coverImageUrl = dto.coverImageUrl?.trim() || null;
     }
 
+    if (dto.isPublished !== undefined) {
+      entity.isPublished = dto.isPublished;
+    }
+  }
+
+  protected applyBaseUpdates(entity: T, dto: BasePlaceUpdatePayload): void {
+    this.applyBaseCoreUpdates(entity, dto);
+
     if (
       dto.introZhCN !== undefined ||
       dto.introMnMN !== undefined ||
@@ -232,14 +279,8 @@ export abstract class BasePlaceService<T extends BasePlaceEntity> {
         ...(dto.noticeMnMN !== undefined
           ? { 'mn-MN': dto.noticeMnMN.trim() }
           : {}),
-        ...(dto.noticeEn !== undefined
-          ? { 'en-US': dto.noticeEn.trim() }
-          : {}),
+        ...(dto.noticeEn !== undefined ? { 'en-US': dto.noticeEn.trim() } : {}),
       };
-    }
-
-    if (dto.isPublished !== undefined) {
-      entity.isPublished = dto.isPublished;
     }
   }
 }

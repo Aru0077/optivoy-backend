@@ -62,4 +62,3 @@ export class AddPlaceNoticeI18n1741742000000 implements MigrationInterface {
     `);
   }
 }
-

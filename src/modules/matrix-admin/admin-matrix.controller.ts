@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -34,6 +43,12 @@ export class AdminMatrixController {
   @Throttle({ default: { ttl: 60000, limit: 120 } })
   listJobs(@Query() query: ListMatrixJobsQueryDto) {
     return this.matrixAdminService.listJobs(query);
+  }
+
+  @Delete('jobs/:jobId')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  removeJob(@Param('jobId') jobId: string) {
+    return this.matrixAdminService.removeJob(jobId);
   }
 
   @Post('recompute-city')

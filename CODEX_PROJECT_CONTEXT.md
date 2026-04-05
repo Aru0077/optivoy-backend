@@ -7,6 +7,7 @@
 - 框架：NestJS 11
 - 语言：TypeScript
 - ORM：TypeORM + PostgreSQL
+- 系统消息多语言：`nestjs-i18n`
 - 认证：JWT + Passport
 - 上传：阿里云 OSS STS
 - 观测：OpenTelemetry（可选）
@@ -21,6 +22,7 @@
 ## 2. 行程相关最新业务边界
 
 - Admin 维护景点、购物中心、酒店、机场代码等基础数据
+- 酒店数据模型仅保留名称、区划、坐标、星级、入住/退房时间、预订链接、价格区间，不再维护简介/注意事项/攻略，也不再维护 arrival/departure anchor
 - 用户端流程：
   1. 按城市查看景点和购物点位（不展示酒店，也不展示餐馆作为可选点）
   2. 输入 `startDate` 并选择点位与节奏、酒店策略
@@ -43,12 +45,14 @@
 - 返回城市点位仅包含景点、购物；酒店不在选点阶段展示
 - `POST /trip-planner/generate` 依赖 `transit_cache` 矩阵，不再把机场/餐馆作为规划节点
 - `transit_cache` 矩阵节点范围固定为 `spots + shopping + hotels`
+- matrix-admin 诊断层会区分公交 `fallback` 与 `no_route`
 - 机票链接基于城市机场代码生成；酒店预订链接统一通过 `hotelBookingLinks` 返回，不在每日酒店节点重复展开
 - 每个游览日输出使用线性交替 `sequence` 表达：`hotel(start) -> transport -> point -> lunch_break(需要时) -> ... -> hotel(end)`
 
 ## 4. Optimizer 当前规则
 
 - 输入核心字段：`startDate`、`selectedPointIds`、`paceMode`、`hotelStrategy`
+- 餐饮时间规则固定由服务端按需求自动处理，不对外暴露 `mealPolicy`
 - `hotelStrategy`：
   - `single`：全程单酒店
   - `smart`：优先少换酒店，只在平均单程驾车时间显著下降时切换
@@ -77,3 +81,4 @@
 4. `src/modules/trip-planner/optimizer.client.ts`
 5. `src/config/planner.config.ts`
 6. `src/config/config.validation.ts`
+7. `src/common/i18n/system-message-i18n.service.ts`

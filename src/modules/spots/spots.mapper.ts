@@ -67,7 +67,9 @@ export function mapSpot(spot: Spot, lang: SpotLang): SpotView {
     exitLatitude: toNullableNumber(spot.exitLatitude),
     exitLongitude: toNullableNumber(spot.exitLongitude),
     latitude: toNullableNumber(spot.entryLatitude ?? spot.exitLatitude ?? null),
-    longitude: toNullableNumber(spot.entryLongitude ?? spot.exitLongitude ?? null),
+    longitude: toNullableNumber(
+      spot.entryLongitude ?? spot.exitLongitude ?? null,
+    ),
     coverImageUrl: spot.coverImageUrl,
     intro: resolveIntro(introI18n, lang),
     introI18n,

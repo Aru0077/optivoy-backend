@@ -86,9 +86,7 @@ export class OptimizerRequestError extends Error {
     public readonly bodyText: string,
     public readonly responseBody?: unknown,
   ) {
-    super(
-      `Optimizer request failed: HTTP ${status} ${bodyText.slice(0, 200)}`,
-    );
+    super(`Optimizer request failed: HTTP ${status} ${bodyText.slice(0, 200)}`);
   }
 }
 

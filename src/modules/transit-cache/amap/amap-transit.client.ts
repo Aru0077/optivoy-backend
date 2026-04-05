@@ -21,6 +21,13 @@ export interface AmapDirectionResult {
   summary: string | null;
 }
 
+export interface AmapTransitResult {
+  distanceMeters: number | null;
+  durationMinutes: number | null;
+  summary: string | null;
+  noRoute?: boolean;
+}
+
 interface AmapMatrixResponse {
   status?: string;
   info?: string;
@@ -95,7 +102,10 @@ export class AmapTransitClient {
   }
 
   getTransitDirectionConcurrency(): number {
-    return Math.max(1, Math.min(5, this.config.transitDirectionConcurrency || 1));
+    return Math.max(
+      1,
+      Math.min(5, this.config.transitDirectionConcurrency || 1),
+    );
   }
 
   async getDistanceMatrixToDestination(input: {
@@ -116,7 +126,10 @@ export class AmapTransitClient {
 
     const url = new URL('https://restapi.amap.com/v3/distance');
     url.searchParams.set('key', this.config.webApiKey);
-    url.searchParams.set('origins', input.origins.map((item) => this.toLngLat(item)).join('|'));
+    url.searchParams.set(
+      'origins',
+      input.origins.map((item) => this.toLngLat(item)).join('|'),
+    );
     url.searchParams.set('destination', this.toLngLat(input.destination));
     url.searchParams.set('type', input.mode === 'walking' ? '3' : '1');
 
@@ -139,7 +152,9 @@ export class AmapTransitClient {
       return {
         distanceMeters,
         durationMinutes:
-          durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
+          durationSeconds !== null
+            ? Math.max(1, Math.round(durationSeconds / 60))
+            : null,
       };
     });
   }
@@ -174,7 +189,7 @@ export class AmapTransitClient {
     city?: string | null;
     cityCandidates?: string[];
     concurrency?: number;
-  }): Promise<Array<AmapDirectionResult | null>> {
+  }): Promise<Array<AmapTransitResult | null>> {
     if (!this.isEnabled()) {
       return input.origins.map(() => null);
     }
@@ -187,7 +202,7 @@ export class AmapTransitClient {
       1,
       Math.min(5, input.concurrency ?? this.getTransitDirectionConcurrency()),
     );
-    const results: Array<AmapDirectionResult | null> = new Array(
+    const results = new Array<AmapTransitResult | null>(
       input.origins.length,
     ).fill(null);
 
@@ -227,7 +242,9 @@ export class AmapTransitClient {
     url.searchParams.set('origin', this.toLngLat(origin));
     url.searchParams.set('destination', this.toLngLat(destination));
 
-    const body = await this.requestJson<AmapDrivingDirectionResponse>(url.toString());
+    const body = await this.requestJson<AmapDrivingDirectionResponse>(
+      url.toString(),
+    );
     if (body.status !== '1') {
       return null;
     }
@@ -238,7 +255,9 @@ export class AmapTransitClient {
     return {
       distanceMeters,
       durationMinutes:
-        durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
+        durationSeconds !== null
+          ? Math.max(1, Math.round(durationSeconds / 60))
+          : null,
       summary: path?.strategy?.trim() || null,
     };
   }
@@ -252,7 +271,9 @@ export class AmapTransitClient {
     url.searchParams.set('origin', this.toLngLat(origin));
     url.searchParams.set('destination', this.toLngLat(destination));
 
-    const body = await this.requestJson<AmapWalkingDirectionResponse>(url.toString());
+    const body = await this.requestJson<AmapWalkingDirectionResponse>(
+      url.toString(),
+    );
     if (body.status !== '1') {
       return null;
     }
@@ -263,7 +284,9 @@ export class AmapTransitClient {
     return {
       distanceMeters,
       durationMinutes:
-        durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
+        durationSeconds !== null
+          ? Math.max(1, Math.round(durationSeconds / 60))
+          : null,
       summary: 'walking',
     };
   }
@@ -272,7 +295,7 @@ export class AmapTransitClient {
     origin: AmapCoordinate,
     destination: AmapCoordinate,
     cityCandidates?: Array<string | null>,
-  ): Promise<AmapDirectionResult | null> {
+  ): Promise<AmapTransitResult | null> {
     const attempts = this.buildTransitCityCandidates(cityCandidates);
     const failures: string[] = [];
 
@@ -280,7 +303,9 @@ export class AmapTransitClient {
       let qpsRetryCount = 0;
       while (qpsRetryCount <= this.config.transitQpsRetryCount) {
         try {
-          const url = new URL('https://restapi.amap.com/v3/direction/transit/integrated');
+          const url = new URL(
+            'https://restapi.amap.com/v3/direction/transit/integrated',
+          );
           url.searchParams.set('key', this.config.webApiKey);
           url.searchParams.set('origin', this.toLngLat(origin));
           url.searchParams.set('destination', this.toLngLat(destination));
@@ -290,9 +315,15 @@ export class AmapTransitClient {
             url.searchParams.set('cityd', cityCandidate);
           }
 
-          const body = await this.requestTransitJson<AmapTransitDirectionResponse>(url.toString());
+          const body =
+            await this.requestTransitJson<AmapTransitDirectionResponse>(
+              url.toString(),
+            );
           if (body.status !== '1') {
-            if (this.isTransitQpsExceeded(body.info) && qpsRetryCount < this.config.transitQpsRetryCount) {
+            if (
+              this.isTransitQpsExceeded(body.info) &&
+              qpsRetryCount < this.config.transitQpsRetryCount
+            ) {
               qpsRetryCount += 1;
               await this.delay(this.config.transitQpsBackoffMs * qpsRetryCount);
               continue;
@@ -305,8 +336,15 @@ export class AmapTransitClient {
 
           const transit = body.route?.transits?.[0];
           if (!transit) {
-            failures.push(`city=${cityCandidate ?? '[auto]'} empty_route`);
-            break;
+            this.logger.debug(
+              `Amap transit no route origin=${this.toLngLat(origin)} destination=${this.toLngLat(destination)} city=${cityCandidate ?? '[auto]'}`,
+            );
+            return {
+              noRoute: true,
+              distanceMeters: null,
+              durationMinutes: null,
+              summary: null,
+            };
           }
 
           const distanceMeters = this.toFiniteInt(transit.distance ?? null);
@@ -316,7 +354,9 @@ export class AmapTransitClient {
           return {
             distanceMeters,
             durationMinutes:
-              durationSeconds !== null ? Math.max(1, Math.round(durationSeconds / 60)) : null,
+              durationSeconds !== null
+                ? Math.max(1, Math.round(durationSeconds / 60))
+                : null,
             summary,
           };
         } catch (error) {
@@ -397,8 +437,14 @@ export class AmapTransitClient {
         parts.push(railwayName);
       }
 
-      const walkingDistance = this.toFiniteInt(segment.walking?.distance ?? null);
-      if (walkingDistance !== null && walkingDistance > 0 && parts.length === 0) {
+      const walkingDistance = this.toFiniteInt(
+        segment.walking?.distance ?? null,
+      );
+      if (
+        walkingDistance !== null &&
+        walkingDistance > 0 &&
+        parts.length === 0
+      ) {
         parts.push('walking');
       }
     }
@@ -426,7 +472,10 @@ export class AmapTransitClient {
 
   private async requestJson<T>(url: string): Promise<T> {
     const abortController = new AbortController();
-    const timeout = setTimeout(() => abortController.abort(), this.config.requestTimeoutMs);
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      this.config.requestTimeoutMs,
+    );
 
     try {
       const response = await fetch(url, {
@@ -454,8 +503,14 @@ export class AmapTransitClient {
 
   private async waitForTransitWindow(): Promise<void> {
     const run = async () => {
-      const minInterval = Math.max(0, this.config.transitRequestMinIntervalMs || 0);
-      const waitMs = Math.max(0, this.lastTransitRequestAt + minInterval - Date.now());
+      const minInterval = Math.max(
+        0,
+        this.config.transitRequestMinIntervalMs || 0,
+      );
+      const waitMs = Math.max(
+        0,
+        this.lastTransitRequestAt + minInterval - Date.now(),
+      );
       if (waitMs > 0) {
         await this.delay(waitMs);
       }

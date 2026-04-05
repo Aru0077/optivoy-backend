@@ -12,21 +12,14 @@ import { UpdateHotelDto } from './dto/update-hotel.dto';
 import { HotelPlace } from './entities/hotel.entity';
 import { HotelView } from './hotel.types';
 import {
-  ensureGuideI18n,
-  ensureIntroI18n,
-  ensureNoticeI18n,
   ensureRegionI18n,
   ensureTextI18n,
-  resolveGuide,
-  resolveIntro,
   resolveName,
-  resolveNotice,
 } from '../../common/utils/content-i18n.util';
 import {
   BasePlaceService,
-  BasePlaceUpdatePayload,
+  BasePlaceCoreUpdatePayload,
 } from '../../common/services/base-place.service';
-import { ensureCoordinatePair } from '../../common/utils/planning-metadata.util';
 import { TripPlannerCacheService } from '../trip-planner/trip-planner-cache.service';
 import { TransitCacheService } from '../transit-cache/transit-cache.service';
 
@@ -53,15 +46,9 @@ export class HotelService extends BasePlaceService<HotelPlace> {
           'pricePerNightMaxCny must be greater than or equal to pricePerNightMinCny.',
       });
     }
-    const planningMetadata = this.normalizePlanningMetadata(dto);
-
     const item = this.hotelRepository.create({
-      ...this.buildBaseCreatePayload(dto),
+      ...this.buildBaseCoreCreatePayload(dto),
       starLevel: dto.starLevel ?? null,
-      arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
-      arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
-      departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
-      departureAnchorLongitude: planningMetadata.departureAnchorLongitude,
       checkInTime: dto.checkInTime?.trim() || null,
       checkOutTime: dto.checkOutTime?.trim() || null,
       bookingUrl: dto.bookingUrl?.trim() || null,
@@ -85,23 +72,10 @@ export class HotelService extends BasePlaceService<HotelPlace> {
       });
     }
 
-    this.applyBaseUpdates(item, dto as BasePlaceUpdatePayload);
-    const planningMetadata = this.normalizePlanningMetadata(dto, item);
+    this.applyBaseCoreUpdates(item, dto as BasePlaceCoreUpdatePayload);
 
     if (dto.starLevel !== undefined) {
       item.starLevel = dto.starLevel;
-    }
-    if (dto.arrivalAnchorLatitude !== undefined) {
-      item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
-    }
-    if (dto.arrivalAnchorLongitude !== undefined) {
-      item.arrivalAnchorLongitude = planningMetadata.arrivalAnchorLongitude;
-    }
-    if (dto.departureAnchorLatitude !== undefined) {
-      item.departureAnchorLatitude = planningMetadata.departureAnchorLatitude;
-    }
-    if (dto.departureAnchorLongitude !== undefined) {
-      item.departureAnchorLongitude = planningMetadata.departureAnchorLongitude;
     }
     if (dto.checkInTime !== undefined) {
       item.checkInTime = dto.checkInTime?.trim() || null;
@@ -187,10 +161,7 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     }
 
     const total = await qb.getCount();
-    const items = await qb
-      .take(query.limit)
-      .skip(query.offset)
-      .getMany();
+    const items = await qb.take(query.limit).skip(query.offset).getMany();
 
     return {
       total,
@@ -256,9 +227,6 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     const nameI18n = ensureTextI18n(item.nameI18n, item.name);
     const provinceI18n = ensureRegionI18n(item.provinceI18n, item.province);
     const cityI18n = ensureRegionI18n(item.cityI18n, item.city);
-    const introI18n = ensureIntroI18n(item.introI18n);
-    const guideI18n = ensureGuideI18n(item.guideI18n);
-    const noticeI18n = ensureNoticeI18n(item.noticeI18n);
 
     return {
       id: item.id,
@@ -272,20 +240,10 @@ export class HotelService extends BasePlaceService<HotelPlace> {
       latitude: item.latitude,
       longitude: item.longitude,
       coverImageUrl: item.coverImageUrl,
-      intro: resolveIntro(introI18n, lang),
-      introI18n,
-      guide: resolveGuide(guideI18n, lang),
-      guideI18n,
-      notice: resolveNotice(noticeI18n, lang),
-      noticeI18n,
       starLevel:
         typeof item.starLevel === 'number' && Number.isFinite(item.starLevel)
           ? item.starLevel
           : null,
-      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
-      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
-      departureAnchorLatitude: item.departureAnchorLatitude,
-      departureAnchorLongitude: item.departureAnchorLongitude,
       checkInTime: item.checkInTime?.trim() || null,
       checkOutTime: item.checkOutTime?.trim() || null,
       bookingUrl: item.bookingUrl?.trim() || null,
@@ -297,64 +255,4 @@ export class HotelService extends BasePlaceService<HotelPlace> {
     };
   }
 
-  private normalizePlanningMetadata(
-    dto: Pick<
-      CreateHotelDto | UpdateHotelDto,
-      | 'arrivalAnchorLatitude'
-      | 'arrivalAnchorLongitude'
-      | 'departureAnchorLatitude'
-      | 'departureAnchorLongitude'
-    >,
-    current?: HotelPlace,
-  ): {
-    arrivalAnchorLatitude: number | null;
-    arrivalAnchorLongitude: number | null;
-    departureAnchorLatitude: number | null;
-    departureAnchorLongitude: number | null;
-  } {
-    try {
-      const arrivalAnchorLatitude =
-        dto.arrivalAnchorLatitude !== undefined
-          ? dto.arrivalAnchorLatitude ?? null
-          : current?.arrivalAnchorLatitude ?? null;
-      const arrivalAnchorLongitude =
-        dto.arrivalAnchorLongitude !== undefined
-          ? dto.arrivalAnchorLongitude ?? null
-          : current?.arrivalAnchorLongitude ?? null;
-      const departureAnchorLatitude =
-        dto.departureAnchorLatitude !== undefined
-          ? dto.departureAnchorLatitude ?? null
-          : current?.departureAnchorLatitude ?? null;
-      const departureAnchorLongitude =
-        dto.departureAnchorLongitude !== undefined
-          ? dto.departureAnchorLongitude ?? null
-          : current?.departureAnchorLongitude ?? null;
-
-      ensureCoordinatePair(
-        arrivalAnchorLatitude,
-        arrivalAnchorLongitude,
-        'arrivalAnchor',
-      );
-      ensureCoordinatePair(
-        departureAnchorLatitude,
-        departureAnchorLongitude,
-        'departureAnchor',
-      );
-
-      return {
-        arrivalAnchorLatitude,
-        arrivalAnchorLongitude,
-        departureAnchorLatitude,
-        departureAnchorLongitude,
-      };
-    } catch (error) {
-      throw new BadRequestException({
-        code: 'HOTEL_PLANNING_METADATA_INVALID',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Hotel planning metadata is invalid.',
-      });
-    }
-  }
 }

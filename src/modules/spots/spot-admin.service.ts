@@ -211,24 +211,26 @@ export class SpotAdminService extends BasePlaceService<Spot> {
       const openingHoursJson =
         dto.openingHoursJson !== undefined
           ? normalizeOpeningHours(dto.openingHoursJson)
-          : current?.openingHoursJson ?? null;
+          : (current?.openingHoursJson ?? null);
       const specialClosureDates =
         dto.specialClosureDates !== undefined
           ? normalizeSpecialDates(dto.specialClosureDates)
-          : current?.specialClosureDates ?? null;
+          : (current?.specialClosureDates ?? null);
       const lastEntryTime =
         dto.lastEntryTime !== undefined
           ? dto.lastEntryTime?.trim() || null
-          : current?.lastEntryTime ?? null;
+          : (current?.lastEntryTime ?? null);
       const queueProfileJson =
         dto.queueProfileJson !== undefined
           ? normalizeQueueProfile(dto.queueProfileJson)
-          : current?.queueProfileJson ?? null;
+          : (current?.queueProfileJson ?? null);
 
       if (lastEntryTime) {
         const latestClose = latestClosingTime(openingHoursJson ?? []);
         if (latestClose && compareHm(lastEntryTime, latestClose) > 0) {
-          throw new Error('lastEntryTime must not be later than the latest closing time in openingHoursJson.');
+          throw new Error(
+            'lastEntryTime must not be later than the latest closing time in openingHoursJson.',
+          );
         }
       }
 
@@ -284,10 +286,7 @@ export class SpotAdminService extends BasePlaceService<Spot> {
     }
 
     const total = await qb.getCount();
-    const items = await qb
-      .take(query.limit)
-      .skip(query.offset)
-      .getMany();
+    const items = await qb.take(query.limit).skip(query.offset).getMany();
 
     return {
       total,

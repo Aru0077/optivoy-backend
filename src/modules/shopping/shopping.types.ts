@@ -20,10 +20,6 @@ export interface ShoppingView {
   noticeI18n: Record<string, string | undefined>;
   openingHoursJson: OpeningHoursRule[];
   specialClosureDates: string[];
-  arrivalAnchorLatitude: number | null;
-  arrivalAnchorLongitude: number | null;
-  departureAnchorLatitude: number | null;
-  departureAnchorLongitude: number | null;
   suggestedDurationMinutes: number;
   hasFoodCourt: boolean;
   avgSpendMinCny: number | null;

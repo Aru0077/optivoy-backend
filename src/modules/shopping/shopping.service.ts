@@ -30,7 +30,6 @@ import {
   BasePlaceUpdatePayload,
 } from '../../common/services/base-place.service';
 import {
-  ensureCoordinatePair,
   normalizeOpeningHours,
   normalizeSpecialDates,
 } from '../../common/utils/planning-metadata.util';
@@ -64,10 +63,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
 
     const item = this.shoppingRepository.create({
       ...this.buildBaseCreatePayload(dto),
-      arrivalAnchorLatitude: planningMetadata.arrivalAnchorLatitude,
-      arrivalAnchorLongitude: planningMetadata.arrivalAnchorLongitude,
-      departureAnchorLatitude: planningMetadata.departureAnchorLatitude,
-      departureAnchorLongitude: planningMetadata.departureAnchorLongitude,
       openingHoursJson: planningMetadata.openingHoursJson,
       specialClosureDates: planningMetadata.specialClosureDates,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
@@ -98,18 +93,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     this.applyBaseUpdates(item, dto as BasePlaceUpdatePayload);
     const planningMetadata = this.normalizePlanningMetadata(dto, item);
 
-    if (dto.arrivalAnchorLatitude !== undefined) {
-      item.arrivalAnchorLatitude = planningMetadata.arrivalAnchorLatitude;
-    }
-    if (dto.arrivalAnchorLongitude !== undefined) {
-      item.arrivalAnchorLongitude = planningMetadata.arrivalAnchorLongitude;
-    }
-    if (dto.departureAnchorLatitude !== undefined) {
-      item.departureAnchorLatitude = planningMetadata.departureAnchorLatitude;
-    }
-    if (dto.departureAnchorLongitude !== undefined) {
-      item.departureAnchorLongitude = planningMetadata.departureAnchorLongitude;
-    }
     if (dto.openingHoursJson !== undefined) {
       item.openingHoursJson = planningMetadata.openingHoursJson;
     }
@@ -197,10 +180,7 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
     }
 
     const total = await qb.getCount();
-    const items = await qb
-      .take(query.limit)
-      .skip(query.offset)
-      .getMany();
+    const items = await qb.take(query.limit).skip(query.offset).getMany();
 
     return {
       total,
@@ -295,10 +275,6 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
       noticeI18n,
       openingHoursJson: normalizeOpeningHours(item.openingHoursJson),
       specialClosureDates: normalizeSpecialDates(item.specialClosureDates),
-      arrivalAnchorLatitude: item.arrivalAnchorLatitude,
-      arrivalAnchorLongitude: item.arrivalAnchorLongitude,
-      departureAnchorLatitude: item.departureAnchorLatitude,
-      departureAnchorLongitude: item.departureAnchorLongitude,
       suggestedDurationMinutes: item.suggestedDurationMinutes ?? 240,
       hasFoodCourt: item.hasFoodCourt === true,
       avgSpendMinCny: item.avgSpendMinCny,
@@ -312,56 +288,21 @@ export class ShoppingService extends BasePlaceService<ShoppingPlace> {
   private normalizePlanningMetadata(
     dto: Pick<
       CreateShoppingDto | UpdateShoppingDto,
-      | 'arrivalAnchorLatitude'
-      | 'arrivalAnchorLongitude'
-      | 'departureAnchorLatitude'
-      | 'departureAnchorLongitude'
       | 'openingHoursJson'
       | 'specialClosureDates'
     >,
     current?: ShoppingPlace,
   ) {
     try {
-      const arrivalAnchorLatitude =
-        dto.arrivalAnchorLatitude !== undefined
-          ? dto.arrivalAnchorLatitude ?? null
-          : current?.arrivalAnchorLatitude ?? null;
-      const arrivalAnchorLongitude =
-        dto.arrivalAnchorLongitude !== undefined
-          ? dto.arrivalAnchorLongitude ?? null
-          : current?.arrivalAnchorLongitude ?? null;
-      const departureAnchorLatitude =
-        dto.departureAnchorLatitude !== undefined
-          ? dto.departureAnchorLatitude ?? null
-          : current?.departureAnchorLatitude ?? null;
-      const departureAnchorLongitude =
-        dto.departureAnchorLongitude !== undefined
-          ? dto.departureAnchorLongitude ?? null
-          : current?.departureAnchorLongitude ?? null;
-      ensureCoordinatePair(
-        arrivalAnchorLatitude,
-        arrivalAnchorLongitude,
-        'arrivalAnchor',
-      );
-      ensureCoordinatePair(
-        departureAnchorLatitude,
-        departureAnchorLongitude,
-        'departureAnchor',
-      );
-
       return {
-        arrivalAnchorLatitude,
-        arrivalAnchorLongitude,
-        departureAnchorLatitude,
-        departureAnchorLongitude,
         openingHoursJson:
           dto.openingHoursJson !== undefined
             ? normalizeOpeningHours(dto.openingHoursJson)
-            : current?.openingHoursJson ?? null,
+            : (current?.openingHoursJson ?? null),
         specialClosureDates:
           dto.specialClosureDates !== undefined
             ? normalizeSpecialDates(dto.specialClosureDates)
-            : current?.specialClosureDates ?? null,
+            : (current?.specialClosureDates ?? null),
       };
     } catch (error) {
       throw new BadRequestException({

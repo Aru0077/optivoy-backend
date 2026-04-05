@@ -36,7 +36,10 @@ function ensureIsoDate(value: string, label: string): string {
   }
 
   const seed = new Date(`${normalized}T00:00:00.000Z`);
-  if (!Number.isFinite(seed.getTime()) || seed.toISOString().slice(0, 10) !== normalized) {
+  if (
+    !Number.isFinite(seed.getTime()) ||
+    seed.toISOString().slice(0, 10) !== normalized
+  ) {
     throw new Error(`${label} contains an invalid calendar date.`);
   }
 
@@ -48,23 +51,40 @@ export function compareHm(a: string, b: string): number {
 }
 
 export function normalizeOpeningHours(
-  input?: Array<{ weekday: number; periods: Array<{ start: string; end: string }> }> | null,
+  input?: Array<{
+    weekday: number;
+    periods: Array<{ start: string; end: string }>;
+  }> | null,
 ): OpeningHoursRule[] {
   if (!input?.length) {
     return [];
   }
 
   const rules = input.map((item, index) => {
-    if (!Number.isInteger(item.weekday) || item.weekday < 0 || item.weekday > 6) {
-      throw new Error(`openingHoursJson[${index}].weekday must be an integer between 0 and 6.`);
+    if (
+      !Number.isInteger(item.weekday) ||
+      item.weekday < 0 ||
+      item.weekday > 6
+    ) {
+      throw new Error(
+        `openingHoursJson[${index}].weekday must be an integer between 0 and 6.`,
+      );
     }
     if (!Array.isArray(item.periods) || item.periods.length === 0) {
-      throw new Error(`openingHoursJson[${index}].periods must contain at least one time range.`);
+      throw new Error(
+        `openingHoursJson[${index}].periods must contain at least one time range.`,
+      );
     }
 
     const periods = item.periods.map((period, periodIndex) => {
-      const start = ensureHm(period.start, `openingHoursJson[${index}].periods[${periodIndex}].start`);
-      const end = ensureHm(period.end, `openingHoursJson[${index}].periods[${periodIndex}].end`);
+      const start = ensureHm(
+        period.start,
+        `openingHoursJson[${index}].periods[${periodIndex}].start`,
+      );
+      const end = ensureHm(
+        period.end,
+        `openingHoursJson[${index}].periods[${periodIndex}].end`,
+      );
       if (compareHm(start, end) >= 0) {
         throw new Error(
           `openingHoursJson[${index}].periods[${periodIndex}] must have start earlier than end.`,
@@ -138,7 +158,9 @@ export function normalizeQueueProfile(
       continue;
     }
     if (!Number.isInteger(value) || value < 0 || value > 1440) {
-      throw new Error(`queueProfileJson.${key} must be an integer between 0 and 1440.`);
+      throw new Error(
+        `queueProfileJson.${key} must be an integer between 0 and 1440.`,
+      );
     }
     profile[key as keyof QueueProfile] = value;
   }
@@ -157,7 +179,9 @@ export function normalizeBestVisitWindows(
     const start = ensureHm(item.start, `bestVisitWindowsJson[${index}].start`);
     const end = ensureHm(item.end, `bestVisitWindowsJson[${index}].end`);
     if (compareHm(start, end) >= 0) {
-      throw new Error(`bestVisitWindowsJson[${index}] must have start earlier than end.`);
+      throw new Error(
+        `bestVisitWindowsJson[${index}] must have start earlier than end.`,
+      );
     }
     return {
       start,
@@ -173,10 +197,13 @@ export function ensureCoordinatePair(
   label: string,
 ): void {
   const hasLatitude = typeof latitude === 'number' && Number.isFinite(latitude);
-  const hasLongitude = typeof longitude === 'number' && Number.isFinite(longitude);
+  const hasLongitude =
+    typeof longitude === 'number' && Number.isFinite(longitude);
 
   if (hasLatitude !== hasLongitude) {
-    throw new Error(`${label} must provide both latitude and longitude together.`);
+    throw new Error(
+      `${label} must provide both latitude and longitude together.`,
+    );
   }
 }
 
