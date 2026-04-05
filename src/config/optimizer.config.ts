@@ -15,11 +15,11 @@ export const optimizerConfig = registerAs('optimizer', (): OptimizerConfig => {
     baseUrl: baseUrl && baseUrl.length > 0 ? baseUrl : 'http://127.0.0.1:8088',
     solvePath: solvePath && solvePath.length > 0 ? solvePath : '/solve',
     requestTimeoutMs: parseInt(
-      process.env.OPTIMIZER_REQUEST_TIMEOUT_MS ?? '10000',
+      process.env.OPTIMIZER_REQUEST_TIMEOUT_MS ?? '30000',
       10,
     ),
     defaultTimeLimitSeconds: parseFloat(
-      process.env.OPTIMIZER_DEFAULT_TIME_LIMIT_SECONDS ?? '2.5',
+      process.env.OPTIMIZER_DEFAULT_TIME_LIMIT_SECONDS ?? '8',
     ),
   };
 });

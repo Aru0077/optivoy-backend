@@ -1,6 +1,6 @@
 # Codex 项目上下文（optivoy-backend）
 
-最后更新：2026-04-04（按需求 v1.5 收敛规划边界）
+最后更新：2026-04-05（已接入 optimizer v2.5 配套要求）
 
 ## 1. 当前核心架构
 
@@ -53,6 +53,8 @@
 
 - 输入核心字段：`startDate`、`selectedPointIds`、`paceMode`、`hotelStrategy`
 - 餐饮时间规则固定由服务端按需求自动处理，不对外暴露 `mealPolicy`
+- backend 调 optimizer 的默认请求超时已提高到 `30000ms`，用于覆盖 v2.5 的两轮求解与单天 OR-Tools/精确降级链路
+- backend 会原样透传 optimizer `diagnostics`，其中重点包括 `optimizationRounds`、`cityProfile`、`validationWarnings`
 - `hotelStrategy`：
   - `single`：全程单酒店
   - `smart`：优先少换酒店，只在平均单程驾车时间显著下降时切换
