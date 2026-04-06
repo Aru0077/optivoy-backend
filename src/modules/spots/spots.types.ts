@@ -26,6 +26,7 @@ export interface SpotRawRow {
   specialClosureDates?: string[] | null;
   lastEntryTime?: string | null;
   suggestedDurationMinutes: number;
+  staminaFactor: number | string | null;
   reservationRequired: boolean;
   reservationUrl: string | null;
   reservationNoteI18n: Record<string, string | undefined> | null;
@@ -64,6 +65,7 @@ export interface SpotView {
   specialClosureDates: string[];
   lastEntryTime: string | null;
   suggestedDurationMinutes: number;
+  staminaFactor: number;
   reservationRequired: boolean;
   reservationUrl: string | null;
   reservationNote: string;

@@ -115,6 +115,9 @@ export class Spot {
   @Column({ type: 'int', default: 240 })
   suggestedDurationMinutes: number;
 
+  @Column({ type: 'double precision', default: 1 })
+  staminaFactor: number;
+
   @Column({ type: 'boolean', default: false })
   reservationRequired: boolean;
 

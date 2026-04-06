@@ -60,6 +60,7 @@ export class SpotAdminService extends BasePlaceService<Spot> {
       exitLatitude: dto.exitLatitude ?? null,
       exitLongitude: dto.exitLongitude ?? null,
       suggestedDurationMinutes: dto.suggestedDurationMinutes,
+      staminaFactor: dto.staminaFactor ?? 1,
       openingHoursJson: planningMetadata.openingHoursJson,
       specialClosureDates: planningMetadata.specialClosureDates,
       lastEntryTime: planningMetadata.lastEntryTime,
@@ -104,6 +105,9 @@ export class SpotAdminService extends BasePlaceService<Spot> {
 
     if (dto.suggestedDurationMinutes !== undefined) {
       spot.suggestedDurationMinutes = dto.suggestedDurationMinutes;
+    }
+    if (dto.staminaFactor !== undefined) {
+      spot.staminaFactor = dto.staminaFactor;
     }
     if (dto.entryLatitude !== undefined) {
       spot.entryLatitude = dto.entryLatitude;

@@ -12,6 +12,7 @@ export interface OptimizerPointInput {
   id: string;
   pointType: OptimizerPointType;
   suggestedDurationMinutes: number;
+  staminaFactor?: number;
   latitude: number | null;
   longitude: number | null;
   arrivalAnchor?: OptimizerCoordinateInput;

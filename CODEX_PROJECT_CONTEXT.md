@@ -22,6 +22,8 @@
 ## 2. 行程相关最新业务边界
 
 - Admin 维护景点、购物中心、酒店、机场代码等基础数据
+- 景点同时维护入口/出口坐标；optimizer 规划时按景点 `arrivalAnchor=入口`、`departureAnchor=出口`
+- 景点新增 `staminaFactor`，用于表达长城等高体力点位的真实游览负担
 - 酒店数据模型仅保留名称、区划、坐标、星级、入住/退房时间、预订链接、价格区间，不再维护简介/注意事项/攻略，也不再维护 arrival/departure anchor
 - 用户端流程：
   1. 按城市查看景点和购物点位（不展示酒店，也不展示餐馆作为可选点）
@@ -54,6 +56,7 @@
 - 输入核心字段：`startDate`、`selectedPointIds`、`paceMode`、`hotelStrategy`
 - 餐饮时间规则固定由服务端按需求自动处理，不对外暴露 `mealPolicy`
 - backend 调 optimizer 的默认请求超时已提高到 `30000ms`，用于覆盖 v2.5 的两轮求解与单天 OR-Tools/精确降级链路
+- backend 仅给景点透传 `arrivalAnchor / departureAnchor`；购物和酒店继续只传中心坐标
 - backend 会原样透传 optimizer `diagnostics`，其中重点包括 `optimizationRounds`、`cityProfile`、`validationWarnings`
 - `hotelStrategy`：
   - `single`：全程单酒店

@@ -72,6 +72,13 @@ export class UpdateSpotDto extends BasePlaceUpdateDto {
   suggestedDurationMinutes?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.5)
+  @Max(3)
+  staminaFactor?: number;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   reservationRequired?: boolean;

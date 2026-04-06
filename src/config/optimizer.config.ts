@@ -15,7 +15,7 @@ export const optimizerConfig = registerAs('optimizer', (): OptimizerConfig => {
     baseUrl: baseUrl && baseUrl.length > 0 ? baseUrl : 'http://127.0.0.1:8088',
     solvePath: solvePath && solvePath.length > 0 ? solvePath : '/solve',
     requestTimeoutMs: parseInt(
-      process.env.OPTIMIZER_REQUEST_TIMEOUT_MS ?? '30000',
+      process.env.OPTIMIZER_REQUEST_TIMEOUT_MS ?? '60000',
       10,
     ),
     defaultTimeLimitSeconds: parseFloat(

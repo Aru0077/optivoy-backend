@@ -285,7 +285,7 @@ export const validationSchema = Joi.object({
   OPTIMIZER_REQUEST_TIMEOUT_MS: Joi.number()
     .integer()
     .min(1000)
-    .max(60000)
+    .max(180000)
     .default(10000),
   OPTIMIZER_DEFAULT_TIME_LIMIT_SECONDS: Joi.number()
     .min(0.2)

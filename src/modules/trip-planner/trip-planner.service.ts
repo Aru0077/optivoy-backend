@@ -71,12 +71,15 @@ interface GeneratedPlannerPoint {
   pointType: 'spot' | 'shopping';
   name: string;
   suggestedDurationMinutes: number;
+  staminaFactor?: number;
   guideI18n: Record<string, string | undefined>;
   coverImageUrl: string | null;
   city: string;
   province: string;
   latitude: number | null;
   longitude: number | null;
+  arrivalAnchor?: PlannerNodeCoordinate | null;
+  departureAnchor?: PlannerNodeCoordinate | null;
   openingHoursJson: OpeningHoursRule[];
   specialClosureDates: string[];
   lastEntryTime: string | null;
@@ -309,8 +312,20 @@ export class TripPlannerService {
           id: item.id,
           pointType: item.pointType,
           suggestedDurationMinutes: item.suggestedDurationMinutes,
+          staminaFactor:
+            item.pointType === 'spot' && typeof item.staminaFactor === 'number'
+              ? item.staminaFactor
+              : undefined,
           latitude: item.latitude,
           longitude: item.longitude,
+          arrivalAnchor:
+            item.pointType === 'spot' && item.arrivalAnchor
+              ? item.arrivalAnchor
+              : undefined,
+          departureAnchor:
+            item.pointType === 'spot' && item.departureAnchor
+              ? item.departureAnchor
+              : undefined,
           openingHoursJson: item.openingHoursJson,
           specialClosureDates: item.specialClosureDates,
           lastEntryTime: item.lastEntryTime,
@@ -729,12 +744,15 @@ export class TripPlannerService {
         arrivalCoordinate?.latitude ?? departureCoordinate?.latitude ?? null,
       longitude:
         arrivalCoordinate?.longitude ?? departureCoordinate?.longitude ?? null,
+      arrivalAnchor: arrivalCoordinate,
+      departureAnchor: departureCoordinate,
       openingHoursJson,
       specialClosureDates: normalizeSpecialDates(spot.specialClosureDates),
       lastEntryTime: this.resolveSpotLastEntryTimeForSolver(
         spot,
         openingHoursJson,
       ),
+      staminaFactor: this.normalizeSpotStaminaFactor(spot.staminaFactor),
       reservationRequired: spot.reservationRequired === true,
       queueProfileJson: normalizeQueueProfile(spot.queueProfileJson),
       hasFoodCourt: spot.hasFoodCourt === true,
@@ -760,6 +778,8 @@ export class TripPlannerService {
       province: item.province,
       latitude: fallbackCoordinate?.latitude ?? null,
       longitude: fallbackCoordinate?.longitude ?? null,
+      arrivalAnchor: undefined,
+      departureAnchor: undefined,
       openingHoursJson,
       specialClosureDates: normalizeSpecialDates(item.specialClosureDates),
       lastEntryTime: null,
@@ -811,6 +831,15 @@ export class TripPlannerService {
       return undefined;
     }
     return coordinate;
+  }
+
+  private normalizeSpotStaminaFactor(
+    value: number | null | undefined,
+  ): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 1;
+    }
+    return Math.min(3, Math.max(0.5, value));
   }
 
   private mapTransitEdgeToMatrixRow(
