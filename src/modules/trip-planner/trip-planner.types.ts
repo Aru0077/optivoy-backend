@@ -1,6 +1,7 @@
 import { ContentLang } from '../../common/utils/content-i18n.util';
 import type {
   OpeningHoursRule,
+  PlanningDayType,
   QueueProfile,
 } from '../../common/utils/planning-metadata.util';
 
@@ -96,7 +97,7 @@ export interface GeneratedTripLunchBreakSequenceItem {
 
 export interface GeneratedTripHotelSequenceItem {
   itemType: 'hotel';
-  phase: 'start' | 'end';
+  phase: 'start' | 'transfer' | 'end';
   hotel: GeneratedTripHotelStop;
 }
 
@@ -109,6 +110,9 @@ export type GeneratedTripSequenceItem =
 export interface GeneratedTripDay {
   dayNumber: number;
   date: string;
+  dayType?: 'visit' | 'blank';
+  blankReason?: string | null;
+  planningDayType?: PlanningDayType;
   hotel: GeneratedTripHotelStop;
   sequence: GeneratedTripSequenceItem[];
 }

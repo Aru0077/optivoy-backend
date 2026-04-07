@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { HolidayCalendarModule } from '../holiday-calendar/holiday-calendar.module';
 import { HotelPlace } from '../hotels/entities/hotel.entity';
 import { LocationAirport } from '../locations/entities/location-airport.entity';
 import { ShoppingPlace } from '../shopping/entities/shopping.entity';
@@ -20,6 +21,7 @@ import { TripPlannerService } from './trip-planner.service';
       HotelPlace,
       LocationAirport,
     ]),
+    HolidayCalendarModule,
     TransitCacheModule,
     UsersModule,
   ],

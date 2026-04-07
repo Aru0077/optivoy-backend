@@ -14,6 +14,8 @@ export interface QueueProfile {
   holidayMinutes?: number;
 }
 
+export type PlanningDayType = 'weekday' | 'weekend' | 'holiday';
+
 export interface BestVisitWindow extends PlanningTimeRange {
   tag?: string;
 }

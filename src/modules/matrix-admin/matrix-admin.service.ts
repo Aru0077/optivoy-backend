@@ -1581,12 +1581,6 @@ export class MatrixAdminService implements OnModuleInit, OnModuleDestroy {
       if (!this.hasFiniteCoordinatePair(item.latitude, item.longitude)) {
         addIssue('hotel_missing_route_coordinate', item.id);
       }
-      if (!item.checkInTime?.trim()) {
-        addIssue('hotel_missing_check_in_time', item.id);
-      }
-      if (!item.checkOutTime?.trim()) {
-        addIssue('hotel_missing_check_out_time', item.id);
-      }
     }
 
     const solverIssueSummary = Array.from(solverIssueMap.entries())

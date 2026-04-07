@@ -32,6 +32,7 @@ import { plannerConfig } from './config/planner.config';
 import { redisConfig } from './config/redis.config';
 import { AirportCsvImportModule } from './modules/airport-csv-import/airport-csv-import.module';
 import { HealthModule } from './modules/health/health.module';
+import { HolidayCalendarModule } from './modules/holiday-calendar/holiday-calendar.module';
 import { HomeModule } from './modules/home/home.module';
 import { HotelModule } from './modules/hotels/hotel.module';
 import { LocationsModule } from './modules/locations/locations.module';
@@ -108,6 +109,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     SpotsModule,
     ShoppingModule,
     HotelModule,
+    HolidayCalendarModule,
     TripPlannerModule,
     HealthModule,
   ],

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OptimizerConfig } from '../../config/optimizer.config';
 import type {
   OpeningHoursRule,
+  PlanningDayType,
   QueueProfile,
 } from '../../common/utils/planning-metadata.util';
 
@@ -30,8 +31,6 @@ export interface OptimizerHotelInput {
   longitude: number | null;
   arrivalAnchor?: OptimizerCoordinateInput;
   departureAnchor?: OptimizerCoordinateInput;
-  checkInTime?: string | null;
-  checkOutTime?: string | null;
 }
 
 export interface OptimizerCoordinateInput {
@@ -50,6 +49,11 @@ export interface OptimizerDistanceMatrixRow {
   transitSummary?: string | null;
 }
 
+export interface OptimizerCalendarDayInput {
+  date: string;
+  dayType: PlanningDayType;
+}
+
 export interface OptimizerSolveRequest {
   city: string;
   province: string | null;
@@ -59,6 +63,7 @@ export interface OptimizerSolveRequest {
   mealPolicy: 'auto' | 'off';
   points: OptimizerPointInput[];
   hotels: OptimizerHotelInput[];
+  calendarDays: OptimizerCalendarDayInput[];
   distanceMatrix: {
     rows: OptimizerDistanceMatrixRow[];
   };
@@ -71,6 +76,8 @@ export interface OptimizerDayResult {
   date: string;
   pointIds: string[];
   hotelId: string;
+  dayType?: 'visit' | 'blank';
+  blankReason?: string | null;
 }
 
 export interface OptimizerSolveResponse {
